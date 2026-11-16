@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e6e73">
+<title>KneeAngle</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-state="off">
+
+<header class="top" id="top" hidden>
+  <span class="dot" id="connDot"></span>
+  <div class="name"><span id="devName">KneeAngle</span><small id="connText">nicht verbunden</small></div>
+  <span class="batt" id="batt" hidden></span>
+  <button class="btn small sec" id="btnConn">Verbinden</button>
+</header>
+
+<div id="banners"></div>
+
+<main>
+  <!-- Start -->
+  <section class="view welcome" id="view-welcome">
+    <img src="icons/icon-192.png" alt="">
+    <h1>KneeAngle</h1>
+    <p>Misst den Kniewinkel und vibriert, bevor das Knie überstreckt.</p>
+    <p class="muted" id="noBle" hidden>Dieser Browser kann kein Bluetooth. Bitte Chrome auf einem Android-Handy verwenden.</p>
+    <button class="btn" id="btnStart">Mit Gerät verbinden</button>
+    <button class="btn sec" id="btnDemo">Ohne Gerät ausprobieren</button>
+    <p class="muted" style="margin-top:18px">Gerät einschalten, dann verbinden. Beim ersten Mal innert 60 Sekunden nach dem Einschalten, damit dieses Handy gekoppelt wird.</p>
+  </section>
+
+  <!-- Messen -->
+  <section class="view" id="view-live" hidden>
+    <svg class="gauge" id="gauge" viewBox="0 0 320 232" role="img" aria-label="Kniewinkel">
+      <path class="scale" id="gScale"/>
+      <path class="z-app" id="gApp"/>
+      <path class="z-over" id="gOver"/>
+      <line class="limit" id="gLimit" x1="0" y1="0" x2="0" y2="0"/>
+      <text id="gT0" text-anchor="start">0°</text>
+      <text id="gT90" text-anchor="middle">90°</text>
+      <line class="bone" x1="28" y1="96" x2="150" y2="96"/>
+      <line class="bone shank" id="gShank" x1="150" y1="96" x2="250" y2="96"/>
+      <circle class="joint" cx="150" cy="96" r="11"/>
+    </svg>
+    <div class="readout">
+      <div class="angle" id="angle">–</div>
+      <div class="stateline" id="stateLine">nicht verbunden</div>
+      <div class="subline" id="subLine"></div>
+    </div>
+    <div class="silbar" id="silBar" hidden><span class="grow" id="silText"></span><button class="btn small" id="btnArm">Alarm einschalten</button></div>
+    <div class="facts">
+      <div><b id="fMin">–</b><span>kleinster Winkel</span></div>
+      <div><b id="fMax">–</b><span>grösster Winkel</span></div>
+      <div><b id="fOver">–</b><span>Überstreckungen</span></div>
+    </div>
+    <div class="mutebtns" id="muteBtns">
+      <button class="btn sec small" data-mute="5">5 min stumm</button>
+      <button class="btn sec small" data-mute="15">15 min stumm</button>
+      <button class="btn sec small" data-mute="60">60 min stumm</button>
+    </div>
+  </section>
+
+  <!-- Kalibrieren -->
+  <section class="view" id="view-cal" hidden>
+    <h2>Kalibrieren</h2>
+    <div class="block">
+      <div class="item">
+        <div class="grow"><h3>1. Sensoren</h3><div class="st" id="stSensor">–</div><div class="muted">Einmalig, vor dem Anlegen, auf dem Tisch. Etwa 2 Minuten.</div></div>
+        <button class="btn small" data-cal="sensor">Start</button>
+      </div>
+      <div class="item">
+        <div class="grow"><h3>2. Gelenk</h3><div class="st" id="stJoint">–</div><div class="muted">Nach jedem Anlegen am Bein. Etwa 1 Minute.</div></div>
+        <button class="btn small" data-cal="joint">Start</button>
+      </div>
+      <div class="item">
+        <div class="grow"><h3>3. Nullpunkt</h3><div class="st" id="stZero">–</div><div class="muted">Legt fest, was 0° ist. Bei Bedarf jederzeit neu.</div></div>
+        <button class="btn small" data-cal="zero">Start</button>
+      </div>
+    </div>
+    <p class="muted">Reihenfolge beim ersten Mal: 1, 2, 3. Danach genügen nach jedem Anlegen die Schritte 2 und 3.</p>
+  </section>
+
+  <!-- Alarm -->
+  <section class="view" id="view-alarm" hidden>
+    <h2>Alarm</h2>
+    <ul class="errlist" id="setErr" hidden></ul>
+    <div class="block">
+      <div class="field"><label>Alarm eingeschaltet <span class="switch"><input type="checkbox" id="sEnabled"><span></span></span></label>
+        <div class="help">Ausgeschaltet vibriert das Gerät nie. Die Messung läuft weiter.</div></div>
+      <div class="field"><label for="sLimit">Grenzwinkel <output id="oLimit"></output></label>
+        <div class="stepper"><button data-step="sLimit" data-d="-0.5" aria-label="kleiner">−</button><input type="range" id="sLimit" min="-20" max="30" step="0.5"><button data-step="sLimit" data-d="0.5" aria-label="grösser">+</button></div>
+        <div class="help">Starke Vibration, sobald das Knie so weit oder weiter gestreckt ist. 0° = gerade, negativ = überstreckt.</div></div>
+    </div>
+    <div class="block">
+      <div class="field"><label>Vorwarnung mit leichten Pulsen <span class="switch"><input type="checkbox" id="sAppOn"><span></span></span></label></div>
+      <div class="field"><label for="sZone">Beginn der Vorwarnung <output id="oZone"></output></label>
+        <div class="stepper"><button data-step="sZone" data-d="-1">−</button><input type="range" id="sZone" min="2" max="30" step="1"><button data-step="sZone" data-d="1">+</button></div>
+        <div class="help" id="hZone"></div></div>
+      <div class="field"><label for="sAppStr">Stärke der Pulse <output id="oAppStr"></output></label>
+        <div class="stepper"><button data-step="sAppStr" data-d="-5">−</button><input type="range" id="sAppStr" min="0" max="100" step="5"><button data-step="sAppStr" data-d="5">+</button></div></div>
+      <div class="field"><label>Pulse nur bei Bewegung zur Grenze <span class="switch"><input type="checkbox" id="sMoveOnly"><span></span></span></label>
+        <div class="help">Verhindert Dauer-Pulse, wenn man ruhig im Vorwarnbereich steht.</div></div>
+      <div class="row"><button class="btn sec grow" id="btnTestApp">Pulse testen</button></div>
+    </div>
+    <div class="block">
+      <div class="field"><label for="sAlStr">Stärke des Alarms <output id="oAlStr"></output></label>
+        <div class="stepper"><button data-step="sAlStr" data-d="-5">−</button><input type="range" id="sAlStr" min="30" max="100" step="5"><button data-step="sAlStr" data-d="5">+</button></div></div>
+      <div class="row"><button class="btn sec grow" id="btnTestAl">Alarm testen</button></div>
+    </div>
+    <details class="block">
+      <summary><b>Feineinstellungen</b></summary>
+      <div class="field"><label for="sHyst">Hysterese <output id="oHyst"></output></label>
+        <div class="stepper"><button data-step="sHyst" data-d="-0.5">−</button><input type="range" id="sHyst" min="0.5" max="5" step="0.5"><button data-step="sHyst" data-d="0.5">+</button></div>
+        <div class="help">Der Alarm endet erst, wenn das Knie um diesen Betrag wieder gebeugt ist. Verhindert Flattern an der Grenze.</div></div>
+      <div class="field"><label for="sRateMin">Pulse pro Sekunde am Rand <output id="oRateMin"></output></label>
+        <div class="stepper"><button data-step="sRateMin" data-d="-0.5">−</button><input type="range" id="sRateMin" min="0.5" max="10" step="0.5"><button data-step="sRateMin" data-d="0.5">+</button></div></div>
+      <div class="field"><label for="sRateMax">Pulse pro Sekunde an der Grenze <output id="oRateMax"></output></label>
+        <div class="stepper"><button data-step="sRateMax" data-d="-0.5">−</button><input type="range" id="sRateMax" min="0.5" max="10" step="0.5"><button data-step="sRateMax" data-d="0.5">+</button></div></div>
+      <div class="field"><label for="sPredict">Früher auslösen bei schneller Bewegung <output id="oPredict"></output></label>
+        <div class="stepper"><button data-step="sPredict" data-d="-10">−</button><input type="range" id="sPredict" min="0" max="300" step="10"><button data-step="sPredict" data-d="10">+</button></div>
+        <div class="help">Gleicht die Anlaufzeit des Motors aus. Empfohlen: 40 ms. Höhere Werte warnen früher, lösen aber bei schnellem normalem Strecken öfter unnötig aus. 0 = aus.</div></div>
+      <div class="field"><label>Vorsichtig auslösen <span class="switch"><input type="checkbox" id="sCautious"><span></span></span></label>
+        <div class="help">Verschiebt die Grenze um die aktuelle Messunsicherheit in die sichere Richtung.</div></div>
+      <div class="field"><label>Akkumessung eingebaut <span class="switch"><input type="checkbox" id="sBatt"><span></span></span></label>
+        <div class="help">Nur einschalten, wenn der Spannungsteiler an A0 angeschlossen ist.</div></div>
+    </details>
+    <div class="savebar" id="saveBar" hidden><button class="btn sec" id="btnRevert">Verwerfen</button><button class="btn" id="btnSave">Speichern</button></div>
+  </section>
+
+  <!-- Verlauf -->
+  <section class="view" id="view-log" hidden>
+    <h2>Verlauf</h2>
+    <div class="block">
+      <h3>Seit dem Einschalten</h3>
+      <div class="facts" style="margin-top:8px">
+        <div><b id="lOver">–</b><span>Überstreckungen</span></div>
+        <div><b id="lWarn">–</b><span>Vorwarnungen</span></div>
+        <div><b id="lApp">–</b><span>Annäherungen</span></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button class="btn sec small grow" id="btnStatsReset">Zähler zurücksetzen</button></div>
+    </div>
+    <div class="block">
+      <h3>Gespeicherte Überstreckungen</h3>
+      <p class="muted" id="logInfo">Das Gerät speichert sie auch ohne Handy.</p>
+      <div class="row"><button class="btn small grow" id="btnLogLoad">Vom Gerät laden</button><button class="btn sec small" id="btnLogCsv" disabled>Als CSV</button><button class="btn sec small" id="btnLogClear">Löschen</button></div>
+      <table class="log" id="logTable" hidden><thead><tr><th>Zeit</th><th class="num">Winkel</th><th class="num">Grenze</th><th class="num">Dauer</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="block">
+      <h3>Winkel über die Zeit</h3>
+      <canvas class="chart" id="chart" width="600" height="200"></canvas>
+      <div class="row" style="margin-top:10px"><button class="btn small grow" id="btnRec">Aufzeichnen</button><button class="btn sec small" id="btnRecCsv" disabled>Als CSV</button></div>
+      <p class="muted" id="recInfo" style="margin-top:8px"></p>
+    </div>
+  </section>
+
+  <!-- Mehr -->
+  <section class="view" id="view-more" hidden>
+    <h2>Mehr</h2>
+    <div class="block">
+      <h3>Dieses Handy</h3>
+      <div class="field"><label>Ton und Vibration am Handy bei Alarm <span class="switch"><input type="checkbox" id="pPhoneAlarm"><span></span></span></label></div>
+      <div class="field"><label>Bildschirm eingeschaltet lassen <span class="switch"><input type="checkbox" id="pWake"><span></span></span></label></div>
+    </div>
+    <div class="block">
+      <h3>Kopplung</h3>
+      <p id="pairText" class="muted">–</p>
+      <div class="row"><button class="btn small" id="btnPair" hidden>Dieses Handy koppeln</button><button class="btn sec small" id="btnForget" hidden>Kopplung löschen</button></div>
+    </div>
+    <div class="block">
+      <h3>Gerät</h3>
+      <dl class="kv" id="devInfo"></dl>
+      <div class="row" style="margin-top:12px"><button class="btn sec small grow" id="btnMotorCal">Motor neu einmessen</button></div>
+    </div>
+    <details class="block" id="diagBox">
+      <summary><b>Diagnose</b></summary>
+      <dl class="kv" id="diagInfo" style="margin-top:10px"></dl>
+      <div class="row" style="margin-top:12px"><button class="btn sec small grow" id="btnInfo">Statusbericht anfordern</button></div>
+      <pre class="console" id="console" aria-live="off"></pre>
+    </details>
+    <p class="muted">App-Version <span id="appVer"></span>. Prototyp für Entwicklung und Test, kein Medizinprodukt.</p>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs" hidden>
+  <button data-tab="live"><svg viewBox="0 0 24 24"><path d="M3 9h9l6 9"/><circle cx="12" cy="9" r="2.2"/></svg>Messen</button>
+  <button data-tab="cal"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>Kalibrieren</button>
+  <button data-tab="alarm"><svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/></svg>Alarm</button>
+  <button data-tab="log"><svg viewBox="0 0 24 24"><path d="M3 20h18"/><path d="M4 15l5-6 4 4 7-9"/></svg>Verlauf</button>
+  <button data-tab="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>Mehr</button>
+</nav>
+
+<!-- Kalibrier-Assistent -->
+<div class="wizard" id="wizard" hidden role="dialog" aria-modal="true" aria-labelledby="wzTitle">
+  <header><h2 id="wzTitle"></h2><button class="btn small sec" id="wzClose">Abbrechen</button></header>
+  <div class="body" id="wzBody"></div>
+  <div class="foot" id="wzFoot"></div>
+</div>
+
+<script src="protocol.js"></script>
+<script src="device.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
