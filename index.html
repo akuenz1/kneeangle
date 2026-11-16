@@ -57,11 +57,6 @@
       <div><b id="fMax">–</b><span>grösster Winkel</span></div>
       <div><b id="fOver">–</b><span>Überstreckungen</span></div>
     </div>
-    <div class="mutebtns" id="muteBtns">
-      <button class="btn sec small" data-mute="5">5 min stumm</button>
-      <button class="btn sec small" data-mute="15">15 min stumm</button>
-      <button class="btn sec small" data-mute="60">60 min stumm</button>
-    </div>
   </section>
 
   <!-- Kalibrieren -->
@@ -87,6 +82,23 @@
   <!-- Alarm -->
   <section class="view" id="view-alarm" hidden>
     <h2>Alarm</h2>
+    <div class="block">
+      <h3>Stummschalten</h3>
+      <p class="muted" id="muteState">Alarm ist aktiv.</p>
+      <div class="mutebtns" id="muteBtns">
+        <button class="btn sec small" data-mute="5">5 min</button>
+        <button class="btn sec small" data-mute="15">15 min</button>
+        <button class="btn sec small" data-mute="60">60 min</button>
+      </div>
+      <div class="row"><button class="btn grow" id="btnArm2" hidden>Alarm wieder einschalten</button></div>
+      <div class="field"><div class="help">Gilt sofort. Die Messung läuft weiter, Überstreckungen werden trotzdem gespeichert.</div></div>
+    </div>
+    <div class="block">
+      <h3>Am Handy</h3>
+      <div class="field"><label>Ton bei Alarm <span class="switch"><input type="checkbox" id="pPhoneSound"><span></span></span></label></div>
+      <div class="field"><label>Vibration bei Alarm <span class="switch"><input type="checkbox" id="pPhoneVib"><span></span></span></label>
+        <div class="help">Nur solange die App offen ist. Massgebend ist die Vibration am Gerät.</div></div>
+    </div>
     <ul class="errlist" id="setErr" hidden></ul>
     <div class="block">
       <div class="field"><label>Alarm eingeschaltet <span class="switch"><input type="checkbox" id="sEnabled"><span></span></span></label>
@@ -161,8 +173,7 @@
   <section class="view" id="view-more" hidden>
     <h2>Mehr</h2>
     <div class="block">
-      <h3>Dieses Handy</h3>
-      <div class="field"><label>Ton und Vibration am Handy bei Alarm <span class="switch"><input type="checkbox" id="pPhoneAlarm"><span></span></span></label></div>
+      <h3>Anzeige</h3>
       <div class="field"><label>Bildschirm eingeschaltet lassen <span class="switch"><input type="checkbox" id="pWake"><span></span></span></label></div>
     </div>
     <div class="block">

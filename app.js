@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '2.0.0';
+  const APP_VERSION = '2.1.0';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -11,8 +11,10 @@
   let live = null, status = null, settings = null, edit = null, cal = null, diag = null;
   let auth = { authed: false, windowOpen: false, ownerSet: false };
   let conn = 'disconnected';
-  const prefs = { phoneAlarm: true, wake: false };
+  const prefs = { phoneSound: true, phoneVib: true, wake: false };
   try { Object.assign(prefs, JSON.parse(localStorage.getItem('knee.prefs') || '{}')); } catch (e) { /* Standardwerte */ }
+  if (prefs.phoneAlarm === false) { prefs.phoneSound = false; prefs.phoneVib = false; }   // Einstellung der alten Version uebernehmen
+  delete prefs.phoneAlarm;
   const savePrefs = () => { try { localStorage.setItem('knee.prefs', JSON.stringify(prefs)); } catch (e) { /* egal */ } };
 
   // ---------------------------------------------------------------------------
@@ -168,7 +170,12 @@
     if (l.silence === P.SILENCE.OFF) { sb.hidden = false; $('silText').textContent = 'Alarm ist ausgeschaltet'; }
     else if (l.silence === P.SILENCE.MUTED) { const r = status ? status.muteRemainS : 0; sb.hidden = false; $('silText').textContent = `Stumm, noch ${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')} min`; }
     else sb.hidden = true;
-    $('muteBtns').hidden = l.silence !== P.SILENCE.NONE;
+    // Reiter Alarm: Stummschaltung
+    const ms = $('muteState');
+    if (l.silence === P.SILENCE.OFF) ms.textContent = 'Alarm ist dauerhaft ausgeschaltet.';
+    else if (l.silence === P.SILENCE.MUTED) ms.textContent = $('silText').textContent + '.';
+    else ms.textContent = 'Alarm ist aktiv.';
+    $('btnArm2').hidden = l.silence === P.SILENCE.NONE;
   }
   function renderStatus() {
     if (!status) return;
@@ -191,21 +198,23 @@
     if (live) renderLive();
   }
   document.querySelectorAll('#muteBtns button').forEach((b) => b.addEventListener('click', () => act(() => dev.send(P.cmd.mute(+b.dataset.mute)), `Alarm ${b.dataset.mute} Minuten stumm`)));
-  $('btnArm').addEventListener('click', () => {
+  const armAgain = () => {
     if (live && live.silence === P.SILENCE.OFF) act(() => dev.writeSettings({ ...settings, alarmEnabled: true }), 'Alarm eingeschaltet');
     else act(() => dev.send(P.cmd.mute(0)), 'Alarm wieder aktiv');
-  });
+  };
+  $('btnArm').addEventListener('click', armAgain);
+  $('btnArm2').addEventListener('click', armAgain);
 
   // ---- Ton und Vibration am Handy ---------------------------------------------
   let audio = null, beepTimer = null;
   function ensureAudio() { try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) { audio = null; } }
   function beep() {
-    if (audio) { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 880; o.connect(g); g.connect(audio.destination); g.gain.setValueAtTime(0.25, audio.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.18); o.start(); o.stop(audio.currentTime + 0.2); }
-    if (navigator.vibrate) navigator.vibrate(180);
+    if (audio && prefs.phoneSound) { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = 880; o.connect(g); g.connect(audio.destination); g.gain.setValueAtTime(0.25, audio.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.18); o.start(); o.stop(audio.currentTime + 0.2); }
+    if (navigator.vibrate && prefs.phoneVib) navigator.vibrate(180);
   }
   function stopPhoneAlarm() { if (beepTimer) { clearInterval(beepTimer); beepTimer = null; } lastPhoneState = -1; }
   function phoneAlarm(l) {
-    const on = prefs.phoneAlarm && l.state === P.STATE.OVER && l.silence === P.SILENCE.NONE;
+    const on = (prefs.phoneSound || prefs.phoneVib) && l.state === P.STATE.OVER && l.silence === P.SILENCE.NONE;
     if (on && !beepTimer) { beep(); beepTimer = setInterval(beep, 350); }
     else if (!on && beepTimer) stopPhoneAlarm();
   }
@@ -434,8 +443,10 @@
     if (live) kv.push(['Winkelgeschwindigkeit', fmt(live.rate, 0) + ' °/s'], ['Status-Bits', '0x' + live.sysFlags.toString(16)]);
     $('diagInfo').innerHTML = kv.map((x) => `<dt>${esc(x[0])}</dt><dd>${esc(x[1])}</dd>`).join('');
   }
-  $('pPhoneAlarm').checked = prefs.phoneAlarm; $('pWake').checked = prefs.wake;
-  $('pPhoneAlarm').addEventListener('change', (e) => { prefs.phoneAlarm = e.target.checked; savePrefs(); if (prefs.phoneAlarm) ensureAudio(); else stopPhoneAlarm(); });
+  $('pPhoneSound').checked = prefs.phoneSound; $('pPhoneVib').checked = prefs.phoneVib; $('pWake').checked = prefs.wake;
+  const phonePrefChanged = () => { savePrefs(); if (prefs.phoneSound) ensureAudio(); if (!prefs.phoneSound && !prefs.phoneVib) stopPhoneAlarm(); };
+  $('pPhoneSound').addEventListener('change', (e) => { prefs.phoneSound = e.target.checked; phonePrefChanged(); });
+  $('pPhoneVib').addEventListener('change', (e) => { prefs.phoneVib = e.target.checked; phonePrefChanged(); });
   let wakeLock = null;
   async function applyWake() { try { if (prefs.wake && navigator.wakeLock && document.visibilityState === 'visible') wakeLock = await navigator.wakeLock.request('screen'); else if (wakeLock) { await wakeLock.release(); wakeLock = null; } } catch (e) { /* nicht unterstuetzt */ } }
   $('pWake').addEventListener('change', (e) => { prefs.wake = e.target.checked; savePrefs(); applyWake(); });
