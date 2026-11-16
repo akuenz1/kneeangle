@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.2.0';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -41,7 +41,7 @@
     d.on('conn', (s) => { conn = s; if (s === 'connected') { $('devName').textContent = d.name; } renderConn(); renderBanners(); if (s !== 'connected') { live = null; renderLive(); stopPhoneAlarm(); } });
     d.on('live', (l) => { live = l; onLive(l); });
     d.on('status', (s) => { status = s; renderStatus(); renderBanners(); });
-    d.on('settings', (s) => { settings = s; if (!edit || !isDirty()) { edit = { ...s }; fillForm(); } renderLive(); });
+    d.on('settings', (s) => { settings = s; if (!edit || !isDirty()) { edit = { ...s }; fillForm(); } renderLive(); renderBanners(); });
     d.on('cal', (c) => { cal = c; wizardOnCal(c); });
     d.on('auth', (a) => { auth = a; renderPair(); renderBanners(); });
     d.on('diag', (x) => { diag = x; renderDiag(); });
@@ -90,6 +90,7 @@
       if (status.proto !== P.PROTO_VERSION) b.push(['err', 'App und Gerät passen nicht zusammen', `Das Gerät spricht Protokoll ${status.proto}, die App ${P.PROTO_VERSION}. Bitte App oder Firmware aktualisieren.`]);
       if (!auth.authed) b.push(['', 'Nur Ansicht', auth.windowOpen ? 'Dieses Handy ist nicht gekoppelt. Unter „Mehr“ jetzt koppeln.' : 'Zum Koppeln das Gerät aus- und einschalten und innert 60 Sekunden verbinden.']);
       if (!(status.hwBits & P.HB.S1) || !(status.hwBits & P.HB.S2)) b.push(['err', 'Sensor nicht erreichbar', 'Kabel zum Unterschenkel-Sensor prüfen. Der Alarm arbeitet so lange nicht.']);
+      if (settings && settings.motorOn === false) b.push(['', 'Vibration am Gerät ist aus', 'Bei Überstreckung warnt nur das Handy, und nur solange die App offen ist. Einschalten unter „Alarm“.']);
       if (!(status.hwBits & P.HB.MOTOR)) b.push(['err', 'Vibrationsmotor nicht gefunden', 'Das Gerät kann nicht vibrieren. Verkabelung des Motor-Bausteins prüfen.']);
       if (live && (live.aflags & P.AF.BATT_CRIT)) b.push(['err', 'Akku fast leer', 'Der Alarm fällt bald aus. Bitte jetzt laden.']);
       else if (live && (live.aflags & P.AF.BATT_LOW)) b.push(['', 'Akku schwach', 'Bitte bald laden.']);
@@ -334,7 +335,7 @@
   const F = [['sLimit', 'limit', 'oLimit', (v) => fmt(v, 1) + '°'], ['sZone', 'zone', 'oZone', (v) => fmt(v, 0) + '° vorher'], ['sAppStr', 'approachStrength', 'oAppStr', (v) => v + ' %'],
     ['sAlStr', 'alarmStrength', 'oAlStr', (v) => v + ' %'], ['sHyst', 'hyst', 'oHyst', (v) => fmt(v, 1) + '°'], ['sRateMin', 'rateMin', 'oRateMin', (v) => fmt(v, 1)],
     ['sRateMax', 'rateMax', 'oRateMax', (v) => fmt(v, 1)], ['sPredict', 'predictMs', 'oPredict', (v) => (v ? v + ' ms' : 'aus')]];
-  const C = [['sEnabled', 'alarmEnabled'], ['sAppOn', 'approachOn'], ['sMoveOnly', 'approachMoveOnly'], ['sCautious', 'cautiousOn'], ['sBatt', 'batteryPresent']];
+  const C = [['sEnabled', 'alarmEnabled'], ['sAppOn', 'approachOn'], ['sMoveOnly', 'approachMoveOnly'], ['sCautious', 'cautiousOn'], ['sBatt', 'batteryPresent'], ['sMotorOn', 'motorOn']];
   function isDirty() { return !!(edit && settings && JSON.stringify(edit) !== JSON.stringify(settings)); }
   function fillForm() {
     if (!edit) return;

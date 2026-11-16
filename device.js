@@ -131,7 +131,7 @@
     constructor() {
       super();
       this.name = 'KneeAngle-DEMO'; this.connected = false; this.authState = { authed: true, windowOpen: true, ownerSet: true };
-      this.set = { alarmEnabled: true, limit: -5, zone: 10, hyst: 2, approachOn: true, approachMoveOnly: true, rateMin: 1, rateMax: 5, approachStrength: 20, alarmStrength: 100, predictMs: 40, cautiousOn: true, kSigma: 2, batteryPresent: false };
+      this.set = { alarmEnabled: true, limit: -5, zone: 10, hyst: 2, approachOn: true, approachMoveOnly: true, rateMin: 1, rateMax: 5, approachStrength: 20, alarmStrength: 100, predictMs: 40, cautiousOn: true, kSigma: 2, batteryPresent: false, motorOn: true };
       this.t = 0; this.over = false; this.overCount = 0; this.approachCount = 0; this.zone = false; this.min = null; this.max = null;
       this.muteUntil = 0; this.calBits = P.CB.ACC1 | P.CB.ACC2 | P.CB.GYR1 | P.CB.GYR2 | P.CB.JOINT | P.CB.ZERO | P.CB.MOTORCAL;
       this.cal = { mode: 0, step: 0, resultMode: 0, progress: 0, hint: 0, result: 0, resultSeq: 0, a: [0, 0, 0, 0, 0, 0], sectorMask: 0, curSector: 31, q1: 0, q2: 0 };

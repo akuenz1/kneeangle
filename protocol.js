@@ -74,7 +74,7 @@
       alarmEnabled: !!d.getUint8(1), limit: d.getInt16(2, true) / 10, zone: d.getUint16(4, true) / 10, hyst: d.getUint16(6, true) / 10,
       approachOn: !!d.getUint8(8), approachMoveOnly: !!d.getUint8(9), rateMin: d.getUint8(10) / 10, rateMax: d.getUint8(11) / 10,
       approachStrength: d.getUint8(12), alarmStrength: d.getUint8(13), predictMs: d.getUint16(14, true),
-      cautiousOn: !!d.getUint8(16), kSigma: d.getUint8(17) / 10, batteryPresent: !!d.getUint8(18)
+      cautiousOn: !!d.getUint8(16), kSigma: d.getUint8(17) / 10, batteryPresent: !!d.getUint8(18), motorOn: !d.getUint8(19)
     };
   }
   function encodeSettings(s) {
@@ -85,7 +85,7 @@
     d.setUint8(10, Math.round(s.rateMin * 10)); d.setUint8(11, Math.round(s.rateMax * 10));
     d.setUint8(12, Math.round(s.approachStrength)); d.setUint8(13, Math.round(s.alarmStrength));
     d.setUint16(14, Math.round(s.predictMs), true);
-    d.setUint8(16, s.cautiousOn ? 1 : 0); d.setUint8(17, Math.round(s.kSigma * 10)); d.setUint8(18, s.batteryPresent ? 1 : 0);
+    d.setUint8(16, s.cautiousOn ? 1 : 0); d.setUint8(17, Math.round(s.kSigma * 10)); d.setUint8(18, s.batteryPresent ? 1 : 0); d.setUint8(19, s.motorOn === false ? 1 : 0);
     return b;
   }
   // Plausibilitaet wie im Geraet; gibt Liste von Fehlertexten zurueck (leer = ok)
