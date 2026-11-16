@@ -35,12 +35,13 @@
 
     async _open() {
       this.emit('conn', 'connecting');
-      const server = await this.dev.gatt.connect();
-      const svc = await server.getPrimaryService(P.UUID.service);
-      for (const k of ['live', 'status', 'cal', 'msg', 'cmd', 'settings', 'log', 'auth', 'diag']) this.ch[k] = await svc.getCharacteristic(P.UUID[k]);
+      const step = async (name, fn) => { try { return await fn(); } catch (e) { const err = new Error(name + ': ' + (e && (e.name + ' ' + e.message))); err.name = 'StepError'; throw err; } };
+      const server = await step('Verbindungsaufbau', () => this.dev.gatt.connect());
+      const svc = await step('Dienst suchen', () => server.getPrimaryService(P.UUID.service));
+      for (const k of ['live', 'status', 'cal', 'msg', 'cmd', 'settings', 'log', 'auth', 'diag']) this.ch[k] = await step('Merkmal ' + k, () => svc.getCharacteristic(P.UUID[k]));
       const sub = async (k, fn) => {
         this.ch[k].addEventListener('characteristicvaluechanged', (e) => fn(e.target.value));
-        await this.ch[k].startNotifications();
+        await step('Benachrichtigung ' + k, () => this.ch[k].startNotifications());
       };
       await sub('status', (v) => { const s = P.decodeStatus(v); if (s) this.emit('status', s); });
       await sub('cal', (v) => { const c = P.decodeCal(v); if (c) this.emit('cal', c); });

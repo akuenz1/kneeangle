@@ -50,7 +50,7 @@
     if (!window.KneeDevice.supported) { $('noBle').hidden = false; return; }
     demo = false; attach(new window.KneeDevice());
     try { ensureAudio(); await dev.connect(); show('live'); }
-    catch (e) { if (e && e.name !== 'NotFoundError') toast('Verbindung fehlgeschlagen. Ist das Gerät eingeschaltet und in der Nähe?', true); conn = 'disconnected'; renderConn(); }
+    catch (e) { if (e && e.name !== 'NotFoundError') toast('Verbindung fehlgeschlagen' + (e && e.name === 'StepError' ? ' – ' + e.message : '. Ist das Gerät eingeschaltet und in der Nähe?'), true); conn = 'disconnected'; renderConn(); }
   }
   $('btnStart').addEventListener('click', connectReal);
   $('btnDemo').addEventListener('click', async () => { demo = true; attach(new window.DemoDevice()); ensureAudio(); await dev.connect(); show('live'); });
@@ -69,7 +69,7 @@
     let t = $('toast');
     if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'banner'; t.style.cssText = 'position:fixed;left:14px;right:14px;bottom:calc(var(--tab-h) + 18px);z-index:30;box-shadow:0 6px 20px rgba(31,42,51,.25)'; document.body.appendChild(t); }
     t.className = 'banner' + (err ? ' err' : ''); t.textContent = text; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, err ? 12000 : 4000);
   }
   async function act(fn, okText) {
     if (conn !== 'connected') { toast('Nicht verbunden.', true); return false; }
