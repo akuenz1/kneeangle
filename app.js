@@ -62,6 +62,8 @@
     const map = { connected: ['on', 'verbunden', 'Trennen'], connecting: ['wait', 'verbinde …', 'Abbrechen'], reconnecting: ['wait', 'Verbindung verloren, suche Gerät …', 'Abbrechen'], disconnected: ['off', 'nicht verbunden', 'Verbinden'] };
     const m = map[conn] || map.disconnected;
     $('connDot').dataset.s = m[0]; $('connText').textContent = m[1] + (demo && conn === 'connected' ? ' (Demo)' : ''); $('btnConn').textContent = m[2];
+    if (typeof renderPair === 'function') renderPair();
+    if (typeof renderBanners === 'function') renderBanners();
   }
   const canWrite = () => conn === 'connected' && auth.authed;
   let toastTimer = null;
