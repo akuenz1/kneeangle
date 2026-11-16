@@ -30,7 +30,12 @@
       this.name = this.dev.name || 'KneeAngle';
       this.dev.addEventListener('gattserverdisconnected', () => this._lost());
       this.wantConnected = true;
-      await this._open();
+      try { await this._open(); }
+      catch (e) {   // erster Aufbau gescheitert: nicht im Hintergrund weiterversuchen, Verbindung freigeben
+        this.wantConnected = false;
+        try { if (this.dev.gatt.connected) this.dev.gatt.disconnect(); } catch (e2) { /* egal */ }
+        throw e;
+      }
     }
 
     async _open() {
