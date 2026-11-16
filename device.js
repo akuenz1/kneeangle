@@ -46,7 +46,13 @@
       for (const k of ['live', 'status', 'cal', 'msg', 'cmd', 'settings', 'log', 'auth', 'diag']) this.ch[k] = await step('Merkmal ' + k, () => svc.getCharacteristic(P.UUID[k]));
       const sub = async (k, fn) => {
         this.ch[k].addEventListener('characteristicvaluechanged', (e) => fn(e.target.value));
-        await step('Benachrichtigung ' + k, () => this.ch[k].startNotifications());
+        // bis zu 3 Versuche: Android meldet beim ersten Einschalten gelegentlich einen GATT-Fehler
+        await step('Benachrichtigung ' + k, async () => {
+          for (let i = 0; ; i++) {
+            try { return await this.ch[k].startNotifications(); }
+            catch (e) { if (i >= 2 || !this.dev.gatt.connected) throw e; await new Promise((r) => setTimeout(r, 300)); }
+          }
+        });
       };
       await sub('status', (v) => { const s = P.decodeStatus(v); if (s) this.emit('status', s); });
       await sub('cal', (v) => { const c = P.decodeCal(v); if (c) this.emit('cal', c); });
