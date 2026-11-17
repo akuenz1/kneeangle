@@ -62,21 +62,38 @@
   <!-- Kalibrieren -->
   <section class="view" id="view-cal" hidden>
     <h2>Kalibrieren</h2>
+    <div class="block calnext" id="calNext">
+      <p class="calstate" id="calState">–</p>
+      <button class="btn" id="btnCalNext" hidden>Starten</button>
+    </div>
     <div class="block">
+      <h3>Wo misst du?</h3>
+      <div class="seg" role="radiogroup" aria-label="Wo misst du?">
+        <button role="radio" data-rig="leg" aria-checked="true">Am Bein</button>
+        <button role="radio" data-rig="rig" aria-checked="false">Am Testgelenk</button>
+      </div>
+      <p class="muted" style="margin:8px 0 0">Anleitungen und Bilder passen sich an. Die Messung ist dieselbe.</p>
+    </div>
+    <div class="block procs">
       <div class="item">
-        <div class="grow"><h3>1. Sensoren</h3><div class="st" id="stSensor">–</div><div class="muted">Einmalig, vor dem Anlegen, auf dem Tisch. Etwa 2 Minuten.</div></div>
-        <button class="btn small" data-cal="sensor">Start</button>
+        <div class="grow"><h3>Anlegen</h3><div class="st" id="stJoint">–</div><div class="muted">Nach jedem Anlegen der Sensoren. Etwa 1 Minute: ruhig halten, bewegen, strecken, beugen.</div></div>
+        <button class="btn small" data-cal="joint">Starten</button>
       </div>
       <div class="item">
-        <div class="grow"><h3>2. Gelenk</h3><div class="st" id="stJoint">–</div><div class="muted">Nach jedem Anlegen am Bein. Etwa 1 Minute.</div></div>
-        <button class="btn small" data-cal="joint">Start</button>
+        <div class="grow"><h3>Nullpunkt nachstellen</h3><div class="st" id="stZero">–</div><div class="muted">Wenn gestreckt nicht mehr etwa 0° angezeigt wird. 10 Sekunden.</div></div>
+        <button class="btn small" data-cal="zero">Starten</button>
       </div>
       <div class="item">
-        <div class="grow"><h3>3. Nullpunkt</h3><div class="st" id="stZero">–</div><div class="muted">Legt fest, was 0° ist. Bei Bedarf jederzeit neu.</div></div>
-        <button class="btn small" data-cal="zero">Start</button>
+        <div class="grow"><h3>Sensoren einmessen</h3><div class="st" id="stSensor">–</div><div class="muted">Einmalig, ohne Bein. Etwa 3 Minuten. Macht die Messung genauer.</div></div>
+        <button class="btn small" data-cal="sensor">Starten</button>
       </div>
     </div>
-    <p class="muted">Reihenfolge beim ersten Mal: 1, 2, 3. Danach genügen nach jedem Anlegen die Schritte 2 und 3.</p>
+    <div class="block" id="undoBlock" hidden>
+      <h3>Letzte Änderung rückgängig</h3>
+      <p class="muted" id="undoText"></p>
+      <button class="btn sec small" id="btnUndo">Rückgängig machen</button>
+    </div>
+    <p class="muted">Abbrechen ist jederzeit möglich: dann gilt die bisherige Kalibrierung unverändert weiter.</p>
   </section>
 
   <!-- Alarm -->

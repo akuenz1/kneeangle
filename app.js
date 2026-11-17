@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.3.0';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -38,11 +38,11 @@
   // ---------------------------------------------------------------------------
   function attach(d) {
     dev = d;
-    d.on('conn', (s) => { conn = s; if (s === 'connected') { $('devName').textContent = d.name; } renderConn(); renderBanners(); if (s !== 'connected') { live = null; renderLive(); stopPhoneAlarm(); } });
+    d.on('conn', (s) => { conn = s; if (s === 'connected') { $('devName').textContent = d.name; } renderConn(); renderBanners(); renderCalTab(); renderWzConn(); if (s !== 'connected') { live = null; renderLive(); stopPhoneAlarm(); } });
     d.on('live', (l) => { live = l; onLive(l); });
     d.on('status', (s) => { status = s; renderStatus(); renderBanners(); });
     d.on('settings', (s) => { settings = s; if (!edit || !isDirty()) { edit = { ...s }; fillForm(); } renderLive(); renderBanners(); });
-    d.on('cal', (c) => { cal = c; wizardOnCal(c); });
+    d.on('cal', onCal);
     d.on('auth', (a) => { auth = a; renderPair(); renderBanners(); });
     d.on('diag', (x) => { diag = x; renderDiag(); });
     d.on('msg', (t) => { const c = $('console'); c.textContent = (c.textContent + t).slice(-6000); c.scrollTop = c.scrollHeight; });
@@ -87,16 +87,19 @@
   function renderBanners() {
     const b = [];
     if (conn === 'connected' && status) {
-      if (status.proto !== P.PROTO_VERSION) b.push(['err', 'App und Gerät passen nicht zusammen', `Das Gerät spricht Protokoll ${status.proto}, die App ${P.PROTO_VERSION}. Bitte App oder Firmware aktualisieren.`]);
+      if (status.proto < P.PROTO_VERSION) b.push(['err', 'Firmware zu alt', `Auf dem Gerät läuft Firmware ${status.fw}. Messen und Alarm funktionieren, für die Kalibrierung bitte Firmware 2.1 aufspielen.`]);
+      else if (status.proto > P.PROTO_VERSION) b.push(['err', 'App zu alt', 'Das Gerät hat eine neuere Firmware. Bitte die App neu laden (aktualisieren).']);
+      if (cal && cal.mode && !wz.kind) b.push(['run', 'Kalibrierung läuft', `Auf dem Gerät läuft «${TITLE[MODE_KIND[cal.mode]]}». Der Alarm ist so lange aus.`]);
       if (!auth.authed) b.push(['', 'Nur Ansicht', auth.windowOpen ? 'Dieses Handy ist nicht gekoppelt. Unter „Mehr“ jetzt koppeln.' : 'Zum Koppeln das Gerät aus- und einschalten und innert 60 Sekunden verbinden.']);
       if (!(status.hwBits & P.HB.S1) || !(status.hwBits & P.HB.S2)) b.push(['err', 'Sensor nicht erreichbar', 'Kabel zum Unterschenkel-Sensor prüfen. Der Alarm arbeitet so lange nicht.']);
       if (settings && settings.motorOn === false) b.push(['', 'Vibration am Gerät ist aus', 'Bei Überstreckung warnt nur das Handy, und nur solange die App offen ist. Einschalten unter „Alarm“.']);
       if (!(status.hwBits & P.HB.MOTOR)) b.push(['err', 'Vibrationsmotor nicht gefunden', 'Das Gerät kann nicht vibrieren. Verkabelung des Motor-Bausteins prüfen.']);
       if (live && (live.aflags & P.AF.BATT_CRIT)) b.push(['err', 'Akku fast leer', 'Der Alarm fällt bald aus. Bitte jetzt laden.']);
       else if (live && (live.aflags & P.AF.BATT_LOW)) b.push(['', 'Akku schwach', 'Bitte bald laden.']);
-      if (!(status.calBits & P.CB.ACC1) || !(status.calBits & P.CB.ACC2)) b.push(['', 'Sensoren noch nicht kalibriert', 'Ohne Schritt 1 unter „Kalibrieren“ kann der Winkel um mehrere Grad falsch sein.']);
+      if (!(status.calBits & P.CB.ACC1) || !(status.calBits & P.CB.ACC2)) b.push(['', 'Sensoren noch nicht eingemessen', 'Unter «Kalibrieren» einmalig «Sensoren einmessen». Ohne kann der Winkel um mehrere Grad falsch sein.']);
     }
-    $('banners').innerHTML = b.map((x) => `<div class="banner ${x[0]}"><b>${esc(x[1])}</b>${esc(x[2])}</div>`).join('');
+    $('banners').innerHTML = b.map((x) => `<div class="banner ${x[0]}"><b>${esc(x[1])}</b>${esc(x[2])}${x[0] === 'run' ? '<button class="btn small" id="btnResume">Anzeigen</button>' : ''}</div>`).join('');
+    const br = $('btnResume'); if (br) br.addEventListener('click', () => { if (cal && cal.mode) wzResume(cal); });
   }
 
   // ---------------------------------------------------------------------------
@@ -118,14 +121,13 @@
   })();
   let lastZoneKey = '', rafPending = false, lastPhoneState = -1;
   function onLive(l) {
-    pushChart(l); recordRow(l); phoneAlarm(l);
+    pushChart(l); recordRow(l); phoneAlarm(l); updCheck();
     if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; renderLive(); }); }
   }
   function invalidReason() {
     if (!status) return 'Kein Winkel';
     if (!(status.hwBits & P.HB.S1) || !(status.hwBits & P.HB.S2)) return 'Sensor nicht erreichbar';
-    if (!(status.calBits & P.CB.JOINT)) return 'Noch nicht kalibriert';
-    if (!(status.calBits & P.CB.ZERO)) return 'Nullpunkt fehlt';
+    if (!(status.calBits & P.CB.JOINT) || !(status.calBits & P.CB.ZERO)) return 'Noch nicht angelegt';
     if (live && (live.sysFlags & P.SF.BIAS)) return 'Kurz ruhig halten';
     return 'Kein gültiger Winkel';
   }
@@ -188,10 +190,7 @@
       const pct = Math.max(0, Math.min(100, Math.round((status.battMv - 3300) / (4150 - 3300) * 100)));
       bt.hidden = false; bt.textContent = `Akku ${pct} %`; bt.dataset.low = status.battMv < 3500 ? '1' : '0';
     } else bt.hidden = true;
-    const ok = (id, good, t1, t0) => { const e = $(id); e.dataset.ok = good ? '1' : '0'; e.textContent = good ? t1 : t0; };
-    ok('stSensor', (status.calBits & P.CB.ACC1) && (status.calBits & P.CB.ACC2), 'erledigt', 'noch nicht gemacht');
-    ok('stJoint', status.calBits & P.CB.JOINT, 'erledigt', 'noch nicht gemacht');
-    ok('stZero', status.calBits & P.CB.ZERO, 'gesetzt', 'fehlt');
+    renderCalTab();
     const kv = [['Firmware', status.fw], ['Sensor Oberschenkel', (status.hwBits & P.HB.S1) ? `ok, ${status.rateS1} Hz` : 'Fehler'], ['Sensor Unterschenkel', (status.hwBits & P.HB.S2) ? `ok, ${status.rateS2} Hz` : 'Fehler'],
       ['Vibrationsmotor', (status.hwBits & P.HB.MOTOR) ? ((status.calBits & P.CB.MOTORCAL) ? 'ok, eingemessen' : 'ok') : 'nicht gefunden'],
       ['Akku', (status.hwBits & P.HB.BATT) ? (status.battMv / 1000).toFixed(2) + ' V' : 'nicht gemessen']];
@@ -221,112 +220,454 @@
   }
 
   // ---------------------------------------------------------------------------
-  //  Kalibrier-Assistent
+  //  Kalibrieren: drei Ablaeufe, vom Geraet Schritt fuer Schritt gefuehrt.
+  //  Die App zeigt nur an, was das Geraet meldet (CAL-Paket), plus Einleitung,
+  //  Ergebnis und Kontrolle. Das Geraet wartet bei jedem Schritt auf den Benutzer.
   // ---------------------------------------------------------------------------
-  const wz = { kind: null, phase: null, startSeq: 0, timer: null, ref: 0 };
-  const PICT = {
-    table: '<svg class="pict" viewBox="0 0 320 130"><rect class="sf" x="20" y="96" width="280" height="10" rx="5"/><rect class="dev" x="110" y="62" width="100" height="34" rx="6"/><path class="ar" d="M232 60a46 46 0 0 0-40-38"/><path class="ar" d="M192 22l12-6M192 22l6 12"/></svg>',
-    hold: '<svg class="pict" viewBox="0 0 320 130"><path class="ln" d="M40 60h110l110 0"/><circle class="dev" cx="150" cy="60" r="12"/><path class="ar" d="M90 100h140"/></svg>',
-    move: '<svg class="pict" viewBox="0 0 320 130"><path class="ln" d="M40 44h110l56 70"/><circle class="dev" cx="150" cy="44" r="12"/><path class="ar" d="M250 50a80 80 0 0 1-30 62"/><path class="ar" d="M220 112l14-2M220 112l4-14"/><path class="ar" d="M60 20c20-14 50-14 70 0"/><path class="ar" d="M130 20l-12-2M130 20l-3-12"/></svg>',
-    straight: '<svg class="pict" viewBox="0 0 320 130"><rect class="sf" x="20" y="92" width="280" height="10" rx="5"/><path class="ln" d="M44 78h112l112 0"/><circle class="dev" cx="156" cy="78" r="12"/></svg>',
-    flex: '<svg class="pict" viewBox="0 0 320 130"><path class="ln" d="M44 40h112l0 80"/><circle class="dev" cx="156" cy="40" r="12"/><path class="ar" d="M226 40a70 70 0 0 1-22 50"/></svg>'
-  };
-  const INTRO = {
-    sensor: { title: 'Sensoren kalibrieren', pict: 'table', todo: ['Gerät noch <b>nicht</b> am Bein. Beide Teile auf den Tisch legen.', 'Nacheinander in viele verschiedene Lagen drehen: jede Seite einmal nach oben, dazu schräg angelehnt.', 'Jede Lage etwa 2 Sekunden ruhig liegen lassen, bis das Gerät kurz vibriert. Dann weiterdrehen.'], go: 'Kalibrierung starten' },
-    joint: { title: 'Gelenk kalibrieren', pict: 'move', todo: ['Gerät am Bein fest anlegen. Am besten sitzen, das Bein kann frei schwingen.', 'Erst kurz ruhig halten.', 'Dann etwa 25 Sekunden lang das Knie beugen und strecken und dabei den Oberschenkel bewegen: Bein anheben, zur Seite drehen, aufstehen und hinsetzen.', 'Zum Schluss einmal gestreckt und einmal gebeugt ruhig halten.'], go: 'Kalibrierung starten' },
-    zero: { title: 'Nullpunkt setzen', pict: 'straight', todo: ['Auf den Boden oder eine feste Liege setzen, Bein flach ausstrecken.', 'Kniekehle Richtung Unterlage sinken lassen, Fuss locker, Zehen zeigen nach oben. Muskeln entspannen.', 'So ruhig bleiben, bis das Gerät vibriert.'], go: 'Diese Haltung ist 0°' }
-  };
-  const HINTS = {
-    1: { 1: ['hold', 'Ruhig liegen lassen …'], 2: ['go', 'Erfasst. Jetzt in eine neue Lage drehen.'], 3: ['go', 'In eine neue Lage drehen, dann loslassen.'], 11: ['hold', 'Wird berechnet …'] },
-    2: { 1: ['hold', 'Ruhig halten …'], 4: ['go', 'Knie beugen und strecken, Bein dabei in alle Richtungen bewegen.'], 5: ['fix', 'Oberschenkel mehr bewegen: Bein anheben und zur Seite drehen.'], 6: ['fix', 'Unterschenkel mehr bewegen: Knie weiter beugen und strecken.'], 7: ['fix', 'Zwischendurch 1 Sekunde stillhalten, dann weiter.'], 13: ['go', 'Sehr gut, weiter so.'], 11: ['hold', 'Wird berechnet …'], 8: ['hold', 'Bein gestreckt ruhig halten.'], 10: ['fix', 'Bitte aufrecht sitzen oder stehen, nicht auf der Seite liegen.'], 9: ['go', 'Knie etwa rechtwinklig beugen und halten.'], 12: ['go', 'Noch etwas weiter beugen.'] },
-    3: { 1: ['hold', 'Ruhig halten …'], 8: ['hold', 'So bleiben, nicht bewegen.'], 10: ['fix', 'Bitte aufrecht sitzen, nicht auf der Seite liegen.'] }
-  };
-  const RESULTS = {
-    1: ['Geschafft', ''], 2: ['Teilweise geschafft', 'Die Lagesensoren sind kalibriert. Für die Drehsensoren fehlten Drehungen um alle Achsen; die Messung funktioniert trotzdem. Bei Gelegenheit wiederholen.'],
-    3: ['Abgebrochen', 'Es wurde nichts geändert.'], 4: ['Das war zu unruhig', 'Die Lagen müssen ganz ruhig liegen. Am besten jede Lage auf dem Tisch ablegen und loslassen.'],
-    5: ['Zu wenig Bewegung', 'Während der Aufnahme das Knie mehrmals ganz beugen und strecken.'], 6: ['Oberschenkel zu wenig bewegt', 'Das Bein während der Aufnahme auch anheben und zur Seite drehen.'],
-    7: ['Unterschenkel zu wenig bewegt', 'Das Knie während der Aufnahme weiter beugen und strecken.'], 8: ['Richtung nicht eindeutig', 'Zwischendurch zwei- bis dreimal in verschiedenen Haltungen kurz stillhalten.'],
-    9: ['Keine Ruhe erkannt', 'Das Bein muss kurz ganz ruhig sein. Am besten abstützen.'], 10: ['Zu lange gewartet', 'Bitte noch einmal starten.'], 11: ['Zu wenige Lagen', 'Bitte noch einmal starten und mehr Lagen erfassen.'], 12: ['Zuerst das Gelenk kalibrieren', 'Der Nullpunkt braucht Schritt 2.']
-  };
-  document.querySelectorAll('[data-cal]').forEach((b) => b.addEventListener('click', () => {
-    if (conn !== 'connected') { toast('Nicht verbunden.', true); return; }
-    if (!auth.authed) { toast('Dieses Handy ist nicht gekoppelt. Siehe „Mehr“.', true); return; }
-    openWizard(b.dataset.cal);
-  }));
-  function openWizard(kind) { wz.kind = kind; wz.phase = 'intro'; wz.ref = 0; $('wizard').hidden = false; renderIntro(); }
-  function closeWizard() { clearTimeout(wz.timer); $('wizard').hidden = true; wz.kind = null; wz.phase = null; }
-  $('wzClose').addEventListener('click', () => { if (wz.phase === 'run' && dev) dev.send(P.cmd.char('x')).catch(() => {}); closeWizard(); });
-  function renderIntro() {
-    const I = INTRO[wz.kind];
-    $('wzTitle').textContent = I.title; $('wzClose').textContent = 'Schliessen';
-    let extra = '';
-    if (wz.kind === 'zero') extra = '<div class="block"><h3>Winkel mit einem Winkelmesser gemessen?</h3><p class="muted">Dann die Haltung beibehalten und den gemessenen Winkel eintragen. Überstreckung als negative Zahl.</p><div class="row"><input type="number" id="wzRef" step="0.5" min="-30" max="30" value="0" inputmode="decimal"><span>Grad</span><button class="btn sec small grow" id="wzGoRef">Mit diesem Winkel setzen</button></div></div>';
-    $('wzBody').innerHTML = PICT[I.pict] + '<ol class="todo">' + I.todo.map((t) => `<li>${t}</li>`).join('') + '</ol>' + extra;
-    $('wzFoot').innerHTML = `<button class="btn" id="wzGo">${esc(I.go)}</button>`;
-    $('wzGo').addEventListener('click', () => startCal(null));
-    if (wz.kind === 'zero') $('wzGoRef').addEventListener('click', () => { const v = parseFloat($('wzRef').value); if (Number.isNaN(v) || v < -30 || v > 30) { toast('Bitte einen Winkel zwischen −30 und 30 eintragen.', true); return; } startCal(v); });
-  }
-  async function startCal(ref) {
-    wz.startSeq = cal ? cal.resultSeq : 0; wz.phase = 'run'; wz.ref = ref || 0;
-    $('wzClose').textContent = 'Abbrechen';
-    $('wzBody').innerHTML = '<div class="hint" data-tone="hold">Starte …</div>'; $('wzFoot').innerHTML = '';
-    const bytes = wz.kind === 'sensor' ? P.cmd.char('s') : wz.kind === 'joint' ? P.cmd.char('a') : (ref === null ? P.cmd.char('z') : P.cmd.zeroRef(ref));
-    try { await dev.send(bytes); } catch (e) { toast('Start fehlgeschlagen.', true); renderIntro(); wz.phase = 'intro'; return; }
-    wz.timer = setTimeout(() => { if (wz.phase === 'run' && (!cal || cal.mode === 0) && cal && cal.resultSeq === wz.startSeq) { toast('Das Gerät hat nicht gestartet. Läuft schon eine Kalibrierung?', true); wz.phase = 'intro'; renderIntro(); } }, 3000);
-  }
-  const SECTOR_POS = (() => { const p = []; for (let s = 0; s < 26; s++) { const i = s >= 13 ? s + 1 : s; p.push([i % 3 - 1, Math.floor(i / 3) % 3 - 1, Math.floor(i / 9) - 1]); } return p; })();
-  function sectorSvg(c) {
-    let h = '<svg class="pict sectors" viewBox="0 0 320 120" aria-label="Erfasste Richtungen">';
-    [0, 1, 2].forEach((g) => { h += `<rect class="disc" x="${14 + g * 102}" y="8" width="88" height="104" rx="14"/>`; });
-    SECTOR_POS.forEach((q, s) => {
-      const gx = 58 + (q[2] + 1) * 102 + q[0] * 28, gy = 60 + q[1] * 32;
-      const st = (c.curSector === s) ? 'cur' : '';
-      const done = (c.sectorMask >>> s) & 1;
-      h += `<circle cx="${gx}" cy="${gy}" r="10" data-s="${done ? 'done' : ''}"/>` + (st ? `<circle cx="${gx}" cy="${gy}" r="14" data-s="cur" style="fill:none"/>` : '');
-    });
-    return h + '</svg>';
-  }
-  function wizardOnCal(c) {
-    if (!wz.kind || wz.phase !== 'run') return;
-    const mode = { sensor: 1, joint: 2, zero: 3 }[wz.kind];
-    if (c.mode === 0) { if (c.resultSeq !== wz.startSeq) { clearTimeout(wz.timer); renderResult(c); } return; }
-    if (c.mode !== mode) return;
-    clearTimeout(wz.timer);
-    const hint = (HINTS[mode][c.hint]) || ['hold', ''];
-    let h = '';
-    if (mode === 2) h += '<div class="steps">' + [0, 1, 2, 3].map((i) => `<i data-s="${i < c.step ? 'done' : (i === c.step ? 'now' : '')}"></i>`).join('') + '</div>';
-    if (mode === 1) h += sectorSvg(c);
-    else if (mode === 2) h += PICT[['hold', 'move', 'straight', 'flex'][c.step]];
-    else h += PICT.straight;
-    h += `<div class="hint" data-tone="${hint[0]}" aria-live="polite">${esc(hint[1])}</div><div class="bar"><i style="width:${c.progress}%"></i></div>`;
-    if (mode === 1) {
-      const n = Math.min(c.a[0], c.a[1]), cov = Math.min(c.a[2], c.a[3]);
-      h += `<div class="meters"><div data-ok="${n >= 14 ? 1 : 0}"><b>${n}</b><span>Lagen, Ziel 14</span></div><div data-ok="${cov >= 45 ? 1 : 0}"><b>${cov} %</b><span>Abdeckung, Ziel 45</span></div><div data-ok="${Math.min(c.a[4], c.a[5]) >= 10 ? 1 : 0}"><b>${Math.min(c.a[4], c.a[5])}</b><span>Drehungen, Ziel 10</span></div></div>`;
-      h += '<p class="muted" style="margin-top:10px">Jeder Punkt ist eine Richtung. Der umrandete Punkt zeigt, wohin das Gerät gerade zeigt. Möglichst viele Punkte füllen.</p>';
-    } else if (mode === 2 && c.step === 1) {
-      h += `<div class="meters"><div data-ok="${c.a[0] >= 60 ? 1 : 0}"><b>${Math.round(c.a[0])} %</b><span>Oberschenkel</span></div><div data-ok="${c.a[1] >= 60 ? 1 : 0}"><b>${Math.round(c.a[1])} %</b><span>Unterschenkel</span></div><div data-ok="${c.a[2] >= 2 ? 1 : 0}"><b>${c.a[2]}</b><span>Pausen, Ziel 2</span></div></div>`;
+  const HI = P.HINT, RS = P.RESULT, JS = P.JSTEP;
+  if (prefs.rig !== 'rig') prefs.rig = 'leg';
+  const onLeg = () => prefs.rig === 'leg';
+  const KIND_MODE = { sensor: 1, joint: 2, zero: 3 };
+  const MODE_KIND = { 1: 'sensor', 2: 'joint', 3: 'zero' };
+  const TITLE = { sensor: 'Sensoren einmessen', joint: 'Anlegen', zero: 'Nullpunkt nachstellen' };
+  const calProtoOk = () => !!status && status.proto >= 2;
+  const isCalibrated = () => !!status && (status.calBits & P.CB.JOINT) && (status.calBits & P.CB.ZERO);
+  const sensorsDone = () => !!status && (status.calBits & P.CB.ACC1) && (status.calBits & P.CB.ACC2);
+
+  // ---- Strichzeichnungen ----------------------------------------------------
+  const SV = (body, cls) => `<svg class="pict${cls ? ' ' + cls : ''}" viewBox="0 0 320 170" aria-hidden="true">${body}</svg>`;
+  const FLOOR = '<path class="flr" d="M12 163H308"/>';
+  const CHAIR = '<path class="chr" d="M26 100h120M38 104v56M134 104v56M26 100V42"/>';
+  const PERSON = '<path class="ln" d="M58 92V40"/><circle class="hd" cx="58" cy="25" r="11"/><path class="ln" d="M58 92H170"/><rect class="sens" x="98" y="79" width="30" height="13" rx="3"/>';
+  const KNEE = '<circle class="knee" cx="170" cy="92" r="7"/>';
+  const SHANK = '<path class="ln" d="M170 92V154l24 2"/><rect class="sens" x="174" y="106" width="13" height="30" rx="3"/>';
+  const STOOL = '<path class="chr" d="M212 99h50M220 103v58M254 103v58"/>';
+  const UPPER = '<path class="wood" d="M46 92H160"/><rect class="sens" x="82" y="79" width="30" height="13" rx="3"/>';
+  const LOWER = '<path class="wood" d="M160 92H274"/><rect class="sens" x="204" y="79" width="30" height="13" rx="3"/>';
+  const HINGE = '<circle class="knee" cx="160" cy="92" r="8"/>';
+  const TABLE = '<path class="tbl" d="M20 101H300"/><path class="chr" d="M40 105v56M280 105v56"/>';
+  const ELL = '<path class="ar" d="M246 62a24 24 0 1 1-24 24"/><path class="ar" d="M222 86l-7-11M222 86l9-9"/>';
+  function pict(key) {
+    const leg = onLeg();
+    switch (key) {
+      case 'place': return leg
+        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<path class="lead" d="M113 78V56h34"/><text class="lbl b" x="151" y="61">Arduino</text><path class="lead" d="M188 121h26"/><text class="lbl b" x="218" y="126">Sensor</text>')
+        : SV(TABLE + UPPER + LOWER + HINGE + '<path class="lead" d="M97 78V56h30"/><text class="lbl b" x="131" y="61">Arduino</text><path class="lead" d="M219 78V56h22"/><text class="lbl b" x="245" y="61">Sensor</text>');
+      case 'rest': return leg
+        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<g class="calm"><path d="M236 40v22M248 40v22"/></g>')
+        : SV(TABLE + UPPER + LOWER + HINGE + '<g class="calm"><path d="M236 40v22M248 40v22"/></g>');
+      case 'exFlex': return leg
+        ? SV(FLOOR + CHAIR + PERSON + `<g class="anim aflex">${SHANK}</g>` + KNEE)
+        : SV(`<g transform="translate(0 52)">${UPPER}<g class="anim aflexr">${LOWER}</g>${HINGE}</g>`);
+      case 'exTilt': return leg
+        ? SV(FLOOR + CHAIR + '<path class="ln" d="M58 92V40"/><circle class="hd" cx="58" cy="25" r="11"/>' + `<g class="anim arock"><path class="ln" d="M58 92H170"/><rect class="sens" x="98" y="79" width="30" height="13" rx="3"/><g class="anim aflexs">${SHANK}</g>${KNEE}</g>` + ELL)
+        : SV(`<g transform="translate(0 30)"><g class="anim arockr">${UPPER}<g class="anim aflexrs">${LOWER}</g>${HINGE}</g></g>` + '<path class="ar" d="M296 16a20 20 0 1 1-20 20"/><path class="ar" d="M276 36l-6-10M276 36l8-8"/>');
+      case 'tilt': return SV('<text class="lbl b" x="20" y="22">' + (leg ? 'Achse quer durchs Knie' : 'Gelenkachse') + '</text><text class="lbl" x="20" y="42">schräg halten</text><path class="ref" d="M60 112H280"/><g transform="rotate(-28 160 112)"><path class="axis" d="M76 112H244"/></g><circle class="knee" cx="160" cy="112" r="9"/><path class="ar" d="M262 112a102 102 0 0 0-13-50"/><path class="ar" d="M249 62l-1 13M249 62l11 6"/><text class="lbl big" x="266" y="92">≥ 15°</text>');
+      case 'straight': return leg
+        ? SV(FLOOR + CHAIR + STOOL + PERSON + `<g transform="rotate(-90 170 92)">${SHANK}</g>` + KNEE)
+        : SV(TABLE + UPPER + LOWER + HINGE + '<text class="lbl big" x="150" y="140">0°</text>');
+      case 'flexHold': return leg
+        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<path class="ar" d="M232 92a62 62 0 0 1-44 59"/><path class="ar" d="M188 151l12 3M188 151l8-10"/>')
+        : SV(`<g transform="translate(0 52)"><path class="tbl" d="M20 101H300"/>${UPPER}<g transform="rotate(-90 160 92)">${LOWER}</g>${HINGE}<path class="ar" d="M232 92a72 72 0 0 0-72-72"/><path class="ar" d="M160 20l11-6M160 20l11 6"/></g>`);
+      case 'poses': return SV('<path class="tbl" d="M30 150H290"/><g class="anim apose"><rect class="box" x="100" y="58" width="120" height="54" rx="8"/><rect class="sens" x="112" y="70" width="30" height="13" rx="3"/><rect class="sens" x="178" y="87" width="30" height="13" rx="3"/><circle class="dotm" cx="160" cy="85" r="4"/></g>');
+      case 'compute': return SV('<circle class="spin-bg" cx="160" cy="85" r="44"/><circle class="spin" cx="160" cy="85" r="44"/>');
+      default: return '';
     }
-    $('wzBody').innerHTML = h;
-    const early = (mode === 1 && Math.min(c.a[0], c.a[1]) >= 10 && c.hint !== 11) || (mode === 2 && c.step === 1 && c.a[3] >= 12 && c.hint !== 11);
-    const foot = $('wzFoot');
-    if (early && !$('wzEarly')) { foot.innerHTML = '<button class="btn sec" id="wzEarly">Jetzt abschliessen</button>'; $('wzEarly').addEventListener('click', () => dev.send(P.cmd.char('f')).catch(() => {})); }
-    else if (!early) foot.innerHTML = '';
   }
-  function renderResult(c) {
-    wz.phase = 'result';
-    const ok = c.result === 1 || c.result === 2;
-    const R = RESULTS[c.result] || ['Unbekanntes Ergebnis', ''];
-    let detail = R[1];
-    if (c.result === 1 && c.resultMode === 1) detail = `Restfehler ${fmt(c.q1 / 100, 1)} mg${c.q1 <= 200 ? ' (sehr gut)' : (c.q1 <= 500 ? ' (gut)' : ' (mässig, ruhiger ablegen bringt mehr)')}. Wird dauerhaft gespeichert.`;
-    if (c.resultMode === 2 && ok) detail = `Gelenkachse auf ±${fmt(c.q1 / 100, 1)}° bestimmt, Übereinstimmung ${fmt(c.q2 / 100, 1)}°${c.q2 <= 100 ? ' (gut)' : ' (mässig: sitzt das Gerät fest?)'}. Als Nächstes den Nullpunkt in der Standardhaltung setzen.`;
-    if (c.resultMode === 3 && ok) detail = `Diese Haltung zeigt jetzt ${fmt(c.q2 / 100, 1)}°. Vorher waren es ${fmt(c.q1 / 100, 1)}°.`;
+
+  // ---- Texte ------------------------------------------------------------------
+  // [Ton, Ueberschrift, Erklaerung]; Ton: go = jetzt etwas tun, hold = ruhig, fix = korrigieren, ok = gezaehlt
+  function say(mode, step, hint) {
+    const leg = onLeg();
+    if (hint === HI.COMPUTING) return ['hold', 'Wird berechnet …', leg ? 'Bein locker lassen. Einen Moment.' : 'Einen Moment.'];
+    if (mode === 1) switch (hint) {
+      case HI.PLACE: return ['go', 'Nächste Lage', 'Auf eine andere Seite oder Kante legen und loslassen.'];
+      case HI.HOLD_STILL: return ['hold', 'Liegen lassen …', 'Nicht berühren, bis der Ring voll ist.'];
+      case HI.POSE_DONE: return ['ok', 'Gezählt!', 'Jetzt in eine neue Lage drehen.'];
+      case HI.POSE_SAME: return ['fix', 'Diese Lage hast du schon', 'Mindestens eine Vierteldrehung weiter drehen oder eine andere Seite nach unten legen.'];
+      case HI.UNSTEADY: return ['fix', 'Zu unruhig', 'Ablegen und ganz loslassen. In der Hand gehalten ist es zu unruhig.'];
+      case HI.OTHER_SIDES: return ['fix', 'Andere Seiten fehlen', 'Auch Seiten nach unten legen, die noch nie unten waren, auch auf den Kopf.'];
+      default: return ['hold', '', ''];
+    }
+    if (mode === 3) switch (hint) {
+      case HI.WAIT_REST: return ['fix', 'Ganz ruhig halten', 'Gestreckt bleiben und nicht bewegen.'];
+      case HI.AXIS_VERTICAL: return ['fix', 'Anders halten', leg ? 'Bein nicht zur Seite drehen: Kniescheibe zeigt nach oben.' : 'So drehen, dass die Gelenkachse waagrecht liegt.'];
+      default: return ['hold', 'Nicht bewegen', 'Gestreckt bleiben, bis der Ring voll ist.'];
+    }
+    switch (step) {
+      case JS.REST: return hint === HI.WAIT_REST ? ['fix', 'Noch ruhiger halten', 'Das Gerät wartet, bis alles still ist.']
+        : ['hold', 'Nicht bewegen', leg ? 'Bequem sitzen, Fuss am Boden, Bein locker.' : 'Testgelenk ruhig liegen lassen.'];
+      case JS.MOVE: switch (hint) {
+        case HI.EX_TILT: return ['go', 'Übung 2: kippen und drehen', leg ? 'Fuss leicht anheben und das ganze Bein in alle Richtungen bewegen: Knie nach aussen und innen kippen, Bein drehen, kleine Kreise.' : 'Die ganze Anordnung in der Luft in alle Richtungen kippen und drehen. Dabei weiter beugen.'];
+        case HI.EX_BOTH: return ['go', 'Gut so, weiter bewegen', 'Beide Übungen abwechseln, bis alle Balken voll sind. Die Aufnahme endet von selbst.'];
+        case HI.MORE_THIGH: return ['fix', 'Nachbessern: mehr kippen und drehen', leg ? 'Das ganze Bein mehr bewegen, nicht nur das Knie beugen.' : 'Den oberen Teil mehr in verschiedene Richtungen kippen und drehen.'];
+        case HI.MORE_SHANK: return ['fix', 'Nachbessern: Unterschenkel mehr bewegen', 'Das Knie weiter beugen und strecken.'];
+        case HI.MORE_RANGE: return ['fix', 'Nachbessern: weiter beugen', leg ? 'Ganz strecken und mindestens bis zum rechten Winkel beugen.' : 'Das Gelenk weiter auf- und zuklappen.'];
+        default: return ['go', 'Übung 1: beugen und strecken', leg ? 'Fuss anheben und das Knie langsam ganz strecken und wieder beugen. Mehrmals.' : 'Das Gelenk mehrmals langsam ganz auf- und zuklappen.'];
+      }
+      case JS.TILT: switch (hint) {
+        case HI.HOLD_STILL: return ['hold', 'So halten', 'Nicht bewegen, bis der Ring voll ist.'];
+        case HI.WAIT_REST: return ['fix', 'Ruhiger halten', 'Schräg bleiben. Abstützen hilft.'];
+        default: return ['go', 'Zusatzschritt: zur Seite kippen', leg ? 'Im Sitzen das Knie nach aussen fallen lassen, bis der Balken grün ist. Dann halten.' : 'Das Testgelenk seitlich ankippen, bis der Balken grün ist. Dann halten.'];
+      }
+      case JS.STRAIGHT: switch (hint) {
+        case HI.HOLD_STILL: return ['hold', 'Nicht bewegen', 'Das Gerät misst die gestreckte Haltung.'];
+        case HI.WAIT_REST: return ['fix', 'Ganz ruhig halten', 'Gestreckt bleiben, nicht bewegen.'];
+        case HI.AXIS_VERTICAL: return ['fix', 'Anders halten', leg ? 'Bein nicht zur Seite drehen: Kniescheibe zeigt nach oben.' : 'So drehen, dass die Gelenkachse waagrecht liegt.'];
+        default: return ['go', leg ? 'Bein ganz strecken' : 'Gelenk ganz strecken', leg ? 'Ferse auf einen zweiten Stuhl legen, Kniekehle frei hängen lassen, Muskeln locker. Wenn das Bein ganz gestreckt ist: unten tippen.' : 'Das Gelenk ganz gerade (0°) hinlegen. Dann unten tippen.'];
+      }
+      case JS.FLEX: switch (hint) {
+        case HI.HOLD_STILL: return ['hold', 'So halten', 'Nicht bewegen, bis der Ring voll ist.'];
+        case HI.WAIT_REST: return ['fix', 'Ruhiger halten', 'Gebeugt bleiben, nicht bewegen.'];
+        default: return ['go', 'Jetzt beugen und halten', leg ? 'Fuss zurück auf den Boden stellen, Knie etwa rechtwinklig. Dann ruhig halten.' : 'Das Gelenk etwa 90° beugen und ruhig halten.'];
+      }
+      default: return ['hold', '', ''];
+    }
+  }
+  function pictFor(mode, step, hint) {
+    if (hint === HI.COMPUTING) return 'compute';
+    if (mode === 1) return 'poses';
+    if (mode === 3) return 'straight';
+    switch (step) {
+      case JS.REST: return 'rest';
+      case JS.MOVE: return (hint === HI.EX_TILT || hint === HI.EX_BOTH || hint === HI.MORE_THIGH) ? 'exTilt' : 'exFlex';
+      case JS.COMPUTE: return 'compute';
+      case JS.TILT: return 'tilt';
+      case JS.STRAIGHT: return 'straight';
+      case JS.FLEX: return 'flexHold';
+      default: return '';
+    }
+  }
+  const FAIL = {
+    [RS.ABORTED]: ['Abgebrochen', 'Es wurde nichts geändert. Die bisherige Kalibrierung gilt weiter.'],
+    [RS.ACC_FIT]: ['Lagen zu unruhig', 'Jede Lage ablegen und ganz loslassen, nicht in der Hand halten.'],
+    [RS.TOO_LITTLE_MOTION]: ['Zu wenig Bewegung', 'Bei Übung 1 das Gelenk mehrmals ganz beugen und strecken.'],
+    [RS.AXIS1]: ['Zu wenig gekippt und gedreht', 'Bei Übung 2 das Ganze mehr in alle Richtungen kippen und drehen, nicht nur beugen.'],
+    [RS.AXIS2]: ['Unterschenkel zu wenig bewegt', 'Bei Übung 1 weiter beugen und strecken.'],
+    [RS.SIGN]: ['Richtung nicht eindeutig', 'Beim Zusatzschritt deutlicher zur Seite kippen und ganz ruhig halten.'],
+    [RS.NO_REST]: ['Keine Ruhe erkannt', 'Das Gerät braucht einen Moment Stillstand. Abstützen hilft.'],
+    [RS.TIMEOUT]: ['Zu lange gewartet', 'Es wurde nichts geändert. Einfach noch einmal starten.'],
+    [RS.TOO_FEW]: ['Zu viele gleiche Lagen', 'Noch einmal starten und die Lagen stärker wechseln.'],
+    [RS.NEED_JOINT]: ['Zuerst anlegen', 'Der Nullpunkt kann erst nach «Anlegen» nachgestellt werden.'],
+    [RS.RANGE]: ['Zu wenig gebeugt', 'Ganz strecken und mindestens rechtwinklig beugen.']
+  };
+
+  // ---- Kleine Bausteine -----------------------------------------------------------
+  const ring = (id) => `<svg class="ring" id="${id}" viewBox="0 0 120 120" aria-hidden="true"><circle class="rbg" cx="60" cy="60" r="50"/><circle class="rfg" cx="60" cy="60" r="50" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 60 60)"/><path class="rok" d="M40 62l14 14 28-30"/></svg>`;
+  function setRing(id, pct) { const r = $(id); if (!r) return; r.querySelector('.rfg').setAttribute('stroke-dasharray', `${Math.max(0, Math.min(100, pct))} 100`); r.dataset.full = pct >= 100 ? '1' : '0'; r.dataset.empty = pct <= 0 ? '1' : '0'; }
+  const meter = (id, label) => `<div class="meter" id="${id}"><div class="mlab"><span>${esc(label)}</span><b>0 %</b></div><div class="bar"><i></i></div></div>`;
+  function setMeter(id, pct, active) { const m = $(id); if (!m) return; m.querySelector('b').textContent = pct >= 100 ? 'erledigt' : Math.round(pct) + ' %'; m.querySelector('i').style.width = Math.min(100, pct) + '%'; m.dataset.ok = pct >= 100 ? '1' : '0'; m.dataset.now = active ? '1' : '0'; }
+  const level = (id, unit) => `<div class="level" id="${id}"><div class="lval"><b>–</b><span>${esc(unit)}</span></div><div class="ltrack"><i></i><s></s></div></div>`;
+  function setLevel(id, val, target, max) { const l = $(id); if (!l) return; l.querySelector('b').textContent = fmt(val, 0) + '°'; l.querySelector('i').style.width = Math.min(100, val / max * 100) + '%'; l.querySelector('s').style.left = (target / max * 100) + '%'; l.dataset.ok = val >= target ? '1' : '0'; }
+
+  // ---- Rueckmeldung am Handy (kurz, nur wenn erlaubt) --------------------------------
+  function fb(kind) {
+    const pat = { pose: 35, step: 60, ok: [70, 90, 70], fail: [40, 70, 40, 70, 40] }[kind];
+    if (prefs.phoneVib && navigator.vibrate && pat) navigator.vibrate(pat);
+    if (prefs.phoneSound && audio && (kind === 'ok' || kind === 'step' || kind === 'pose')) {
+      try { const o = audio.createOscillator(), g = audio.createGain(); o.frequency.value = kind === 'ok' ? 1046 : 1318; o.connect(g); g.connect(audio.destination); g.gain.setValueAtTime(0.12, audio.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.09); o.start(); o.stop(audio.currentTime + 0.1); } catch (e) { /* egal */ }
+    }
+  }
+
+  // ---- Reiter "Kalibrieren" ---------------------------------------------------------
+  function renderCalTab() {
+    const ready = conn === 'connected' && calProtoOk();
+    const sens = sensorsDone(), joint = isCalibrated();
+    let state, next = null;
+    if (conn !== 'connected') state = 'Nicht verbunden.';
+    else if (!calProtoOk()) state = 'Die Firmware auf dem Gerät ist zu alt für diesen Assistenten. Bitte Firmware 2.1 aufspielen.';
+    else if (cal && cal.mode) { state = `Läuft gerade: ${TITLE[MODE_KIND[cal.mode]]}.`; next = MODE_KIND[cal.mode]; }
+    else if (!sens) { state = 'Als Nächstes: Sensoren einmessen. Einmalig, ohne Bein, etwa 3 Minuten. Danach: Anlegen.'; next = 'sensor'; }
+    else if (!joint) { state = 'Als Nächstes: Anlegen. Etwa 1 Minute, das Gerät führt dich.'; next = 'joint'; }
+    else state = 'Alles bereit. Nach jedem neuen Anlegen der Sensoren: «Anlegen».';
+    $('calState').textContent = state;
+    $('calNext').dataset.ok = (joint && sens && !(cal && cal.mode)) ? '1' : '0';
+    const bn = $('btnCalNext');
+    bn.hidden = !next || !ready;
+    if (next) bn.textContent = (cal && cal.mode) ? 'Anzeigen' : `${TITLE[next]} starten`;
+    bn.dataset.kind = next || '';
+    const st = (id, good, t1, t0) => { const e = $(id); e.dataset.ok = good ? '1' : '0'; e.textContent = good ? t1 : t0; };
+    if (status) {
+      st('stSensor', sens, 'erledigt', 'noch nicht gemacht');
+      st('stJoint', joint, 'angelegt', 'noch nicht angelegt');
+      st('stZero', joint, 'gesetzt', 'braucht zuerst «Anlegen»');
+    }
+    document.querySelectorAll('[data-cal]').forEach((b) => { b.disabled = !ready || !!(cal && cal.mode) || (b.dataset.cal === 'zero' && !joint); });
+    document.querySelectorAll('[data-rig]').forEach((b) => b.setAttribute('aria-checked', b.dataset.rig === prefs.rig ? 'true' : 'false'));
+    const u = $('undoBlock');
+    u.hidden = !(ready && cal && cal.undo && !cal.mode);
+    if (!u.hidden) $('undoText').textContent = 'Die letzte Änderung (Anlegen oder Nullpunkt) verwerfen und die vorherige Kalibrierung wieder verwenden.';
+  }
+  document.querySelectorAll('[data-rig]').forEach((b) => b.addEventListener('click', () => { prefs.rig = b.dataset.rig; savePrefs(); renderCalTab(); if (wz.kind && wz.phase === 'intro') wzIntro(); }));
+  $('btnCalNext').addEventListener('click', () => { const k = $('btnCalNext').dataset.kind; if (!k) return; if (cal && cal.mode) wzResume(cal); else openWizard(k); });
+  document.querySelectorAll('[data-cal]').forEach((b) => b.addEventListener('click', () => openWizard(b.dataset.cal)));
+  $('btnUndo').addEventListener('click', () => { if (confirm('Letzte Änderung rückgängig machen?')) undoLast(); });
+  function undoLast() { wz.undoSeq = cal ? cal.resultSeq : -1; act(() => dev.send(P.cmd.char('U'))); }
+
+  // ---- Assistent ---------------------------------------------------------------------
+  const wz = { kind: null, phase: null, startSeq: 0, key: '', pictKey: '', lastHint: -1, lastStep: -1, tiltSeen: false, timer: null, muted: false, refOpen: false, undoSeq: -1, shown: null, res: null };
+  function openWizard(kind) {
+    if (conn !== 'connected') { toast('Nicht verbunden.', true); return; }
+    if (!auth.authed) { toast('Dieses Handy ist nicht gekoppelt. Siehe «Mehr».', true); return; }
+    if (!calProtoOk()) { toast('Die Firmware ist zu alt für die neue Kalibrierung (nötig: 2.1).', true); return; }
+    Object.assign(wz, { kind, phase: 'intro', key: '', pictKey: '', lastHint: -1, lastStep: -1, tiltSeen: false, refOpen: false, res: null });
+    $('wizard').hidden = false; document.body.classList.add('wz-open');
+    wzIntro();
+  }
+  function wzResume(c) {
+    Object.assign(wz, { kind: MODE_KIND[c.mode], phase: 'run', startSeq: c.resultSeq, key: '', pictKey: '', lastHint: -1, lastStep: -1, tiltSeen: c.step === JS.TILT, refOpen: false, res: null });
+    $('wizard').hidden = false; document.body.classList.add('wz-open');
+    $('wzTitle').textContent = TITLE[wz.kind]; $('wzClose').textContent = 'Abbrechen';
+    wzRun(c);
+  }
+  function closeWizard() {
+    clearTimeout(wz.timer);
+    if (wz.muted) { wz.muted = false; if (dev && conn === 'connected') dev.send(P.cmd.mute(0)).catch(() => {}); }
+    $('wizard').hidden = true; document.body.classList.remove('wz-open');
+    wz.kind = null; wz.phase = null;
+    renderCalTab(); renderBanners();
+  }
+  $('wzClose').addEventListener('click', () => {
+    if ((wz.phase === 'run' || wz.phase === 'starting') && cal && cal.mode) {
+      if (!confirm('Kalibrierung abbrechen? Die bisherige Kalibrierung gilt dann weiter.')) return;
+      dev.send(P.cmd.char('x')).catch(() => {});
+      return;                      // Ergebnis "Abgebrochen" kommt vom Geraet
+    }
+    closeWizard();
+  });
+
+  function wzIntro() {
+    const leg = onLeg(), k = wz.kind;
+    $('wzTitle').textContent = TITLE[k]; $('wzClose').textContent = 'Schliessen';
+    let pk, todo, go, extra = '';
+    if (k === 'joint') {
+      pk = 'place';
+      todo = leg ? ['Arduino aussen am Oberschenkel, Sensor aussen am Schienbein anlegen. Gurte fest: nichts darf rutschen.', 'Auf einen Stuhl setzen, Fuss am Boden. Einen zweiten Stuhl oder Hocker vor dich stellen.', 'Das Gerät führt dich durch 4 kurze Schritte: ruhig halten, bewegen, strecken, beugen. Es wartet bei jedem Schritt auf dich.']
+        : ['Beide Sensoren fest am Testgelenk. Nichts darf wackeln.', 'Testgelenk ruhig auf den Tisch legen.', 'Das Gerät führt dich durch 4 kurze Schritte: ruhig halten, bewegen, strecken, beugen. Es wartet bei jedem Schritt auf dich.'];
+      go = 'Los geht’s';
+    } else if (k === 'zero') {
+      pk = 'straight';
+      todo = leg ? ['Ferse auf einen Stuhl oder Hocker legen, Kniekehle frei hängen lassen.', 'Muskeln locker lassen, Kniescheibe zeigt nach oben.', 'Wenn das Bein ganz gestreckt ist: unten tippen und 2 Sekunden still halten.']
+        : ['Das Gelenk ganz gerade (0°) hinlegen.', 'Wenn es ganz gestreckt ist: unten tippen und 2 Sekunden still halten.'];
+      go = leg ? 'Bein ist gestreckt: 0° setzen' : 'Gelenk ist gestreckt: 0° setzen';
+      extra = refBox('Mit diesem Winkel setzen');
+    } else {
+      pk = 'poses';
+      todo = [leg ? 'Gerät <b>nicht</b> am Bein. Am besten am Testgelenk oder beide Sensoren fest miteinander verbinden.' : 'Beide Sensoren fest am Testgelenk, Gelenk gestreckt (z.B. mit Klebeband fixieren).',
+        'Die Anordnung nacheinander in 14 verschiedene Lagen legen: jede Seite einmal nach unten, dazu auf die Kanten.', 'Jede Lage etwa 3 Sekunden ruhig liegen lassen. Das Gerät vibriert kurz, wenn die Lage gezählt ist.', 'Kein Zeitdruck. Etwa 3 Minuten.'];
+      go = 'Starten';
+    }
+    $('wzBody').innerHTML = `<div class="wpict">${pict(pk)}</div><ol class="todo">${todo.map((t) => `<li>${t}</li>`).join('')}</ol>${extra}`;
+    $('wzFoot').innerHTML = `<button class="btn" id="wzGo">${esc(go)}</button>`;
+    $('wzGo').addEventListener('click', () => wzStart(null));
+    bindRef((v) => wzStart(v));
+  }
+  function refBox(label) {
+    return `<details class="block refbox"${wz.refOpen ? ' open' : ''}><summary>Winkel mit einem Winkelmesser gemessen?</summary><p class="muted">Haltung beibehalten und den gemessenen Winkel eintragen. Überstreckung als negative Zahl.</p><div class="row"><input type="number" id="wzRef" step="0.5" min="-30" max="30" value="0" inputmode="decimal"><span>Grad</span><button class="btn sec small grow" id="wzGoRef">${esc(label)}</button></div></details>`;
+  }
+  function bindRef(cb) {
+    const b = $('wzGoRef'); if (!b) return;
+    b.parentElement.parentElement.addEventListener('toggle', (e) => { wz.refOpen = e.target.open; });
+    b.addEventListener('click', () => { const v = parseFloat($('wzRef').value); if (Number.isNaN(v) || v < -30 || v > 30) { toast('Bitte einen Winkel zwischen −30 und 30 eintragen.', true); return; } cb(v); });
+  }
+
+  async function wzStart(ref) {
+    const k = wz.kind;
+    wz.startSeq = cal ? cal.resultSeq : 0; wz.phase = 'starting';
+    $('wzClose').textContent = 'Abbrechen';
+    $('wzBody').innerHTML = `<div class="wpict">${pict('compute')}</div><div class="wsay"><div class="whint" data-tone="hold">Starte …</div></div>`; $('wzFoot').innerHTML = '';
+    const bytes = k === 'sensor' ? P.cmd.char('s') : k === 'joint' ? P.cmd.char('a') : (ref === null ? P.cmd.char('z') : P.cmd.zeroRef(ref));
+    try { await dev.send(bytes); } catch (e) { toast('Start fehlgeschlagen. Verbindung prüfen.', true); wz.phase = 'intro'; wzIntro(); return; }
+    clearTimeout(wz.timer);
+    wz.timer = setTimeout(() => {
+      if (wz.phase === 'starting') { toast('Das Gerät hat nicht gestartet. Bitte noch einmal versuchen.', true); wz.phase = 'intro'; wzIntro(); }
+    }, 9000);
+  }
+
+  // jedes CAL-Paket
+  function onCal(c) {
+    const prev = cal; cal = c;
+    if (prev && c.resultSeq !== prev.resultSeq && c.result === RS.UNDONE && !c.mode) {
+      toast('Rückgängig gemacht. Die vorherige Einstellung gilt wieder.'); fb('ok');
+      if (wz.kind && (wz.phase === 'result' || wz.phase === 'check')) closeWizard();
+    }
+    renderCalTab(); renderBanners();
+    if (!wz.kind) return;
+    const mode = KIND_MODE[wz.kind];
+    if (wz.phase === 'starting') {
+      if (c.mode === mode) { clearTimeout(wz.timer); wz.phase = 'run'; fb('step'); }
+      else if (!c.mode && c.resultSeq !== wz.startSeq) { clearTimeout(wz.timer); wzResult(c); return; }
+      else return;
+    }
+    if (wz.phase !== 'run') return;
+    if (!c.mode) { if (c.resultSeq !== wz.startSeq) wzResult(c); return; }
+    if (c.mode !== mode) return;
+    wzRun(c);
+  }
+
+  // Laufende Prozedur: Geruest nur beim Schrittwechsel neu bauen (Animationen laufen weiter)
+  function wzRun(c) {
+    const mode = c.mode, step = mode === 2 ? c.step : (mode === 1 ? (c.hint === HI.COMPUTING ? 9 : 0) : 0);
+    const key = mode + ':' + step + ':' + onLeg();
+    if (step === JS.TILT && mode === 2) wz.tiltSeen = true;
+    if (key !== wz.key) {
+      if (wz.key && wz.lastStep !== step) fb('step');
+      wz.key = key; wz.pictKey = ''; wz.lastStep = step;
+      let h = '';
+      if (mode === 2) h += stepsBar(step);
+      h += '<div class="wpict" id="wzPict"></div><div class="wsay" aria-live="polite"><div class="whint" id="wzHint"></div><div class="wsub" id="wzSub"></div></div><div id="wzWidget" class="wwidget"></div><p class="wtime" id="wzTime" hidden></p><div class="wconn" id="wzConn" hidden>Verbindung unterbrochen. Das Gerät wartet auf dich, die App verbindet neu …</div>';
+      $('wzBody').innerHTML = h;
+      $('wzWidget').innerHTML = widget(mode, step);
+      $('wzFoot').innerHTML = '';
+      wz.foot = '';
+    }
+    // Bild
+    const pk = pictFor(mode, mode === 2 ? c.step : step, c.hint);
+    if (pk !== wz.pictKey) { wz.pictKey = pk; $('wzPict').innerHTML = pict(pk); }
+    // Text
+    const t = say(mode, mode === 2 ? c.step : step, c.hint);
+    const hEl = $('wzHint'); hEl.dataset.tone = t[0]; if (hEl.textContent !== t[1]) hEl.textContent = t[1];
+    const sEl = $('wzSub'); if (sEl.textContent !== t[2]) sEl.textContent = t[2];
+    if (mode === 1 && c.hint === HI.POSE_DONE && wz.lastHint !== HI.POSE_DONE) fb('pose');
+    wz.lastHint = c.hint;
+    updWidget(c, mode, step);
+    // Frist (Sicherheitsnetz): erst in den letzten 30 s zeigen
+    const te = $('wzTime');
+    const showT = c.secLeft > 0 && c.secLeft <= 30 && c.hint !== HI.COMPUTING;
+    te.hidden = !showT; if (showT) te.textContent = `Noch ${c.secLeft} s, sonst bricht das Gerät ab. Nichts wird geändert.`;
+    // Knoepfe
+    let foot = '';
+    if (mode === 2 && c.step === JS.STRAIGHT && !c.a[0] && c.hint !== HI.COMPUTING) foot = 'straight';
+    else if (mode === 1 && step === 0 && Math.min(c.a[0], c.a[1]) >= 10 && Math.min(c.a[2], c.a[3]) >= 45) foot = 'early:' + Math.min(c.a[0], c.a[1]);
+    if (foot !== wz.foot) {
+      wz.foot = foot;
+      const f = $('wzFoot');
+      if (foot === 'straight') {
+        f.innerHTML = `<div class="footcol"><button class="btn" id="wzConfirm">${onLeg() ? 'Bein ist gestreckt' : 'Gelenk ist gestreckt'}</button>${refBox('Mit diesem Winkel bestätigen')}</div>`;
+        $('wzConfirm').addEventListener('click', () => { dev.send(P.cmd.char('n')).catch(() => toast('Senden fehlgeschlagen.', true)); });
+        bindRef((v) => dev.send(P.cmd.zeroRef(v)).catch(() => toast('Senden fehlgeschlagen.', true)));
+      } else if (foot.startsWith('early')) {
+        f.innerHTML = `<button class="btn sec" id="wzEarly">Mit ${foot.split(':')[1]} Lagen abschliessen</button>`;
+        $('wzEarly').addEventListener('click', () => dev.send(P.cmd.char('f')).catch(() => {}));
+      } else f.innerHTML = '';
+    }
+    renderWzConn();
+  }
+  function stepsBar(step) {
+    const st = [['Ruhig', [0]], ['Bewegen', [1, 2]]];
+    if (wz.tiltSeen) st.push(['Kippen', [3]]);
+    st.push(['Strecken', [4]], ['Beugen', [5]], ['Prüfen', [9]]);
+    const cur = st.findIndex((x) => x[1].includes(step));
+    return '<ol class="wsteps">' + st.map((x, i) => `<li data-s="${i < cur ? 'done' : (i === cur ? 'now' : '')}">${x[0]}</li>`).join('') + '</ol>';
+  }
+  function widget(mode, step) {
+    if (mode === 1 && step === 0) return `<div class="poses"><div class="pcount"><b id="wzN">0</b><span>von 14 Lagen</span></div>${ring('wzRing')}</div><div class="pdots" id="wzDots">${'<i></i>'.repeat(14)}</div><div class="chip" id="wzNew" hidden></div>${meter('wzCov', 'Seiten abgedeckt')}`;
+    if (mode === 3) return `<div class="center">${ring('wzRing')}</div><p class="muted center" id="wzLiveTxt"></p>`;
+    if (mode !== 2) return '';
+    switch (step) {
+      case JS.REST: return `<div class="center">${ring('wzRing')}</div>`;
+      case JS.MOVE: return `<div id="wzM3w" hidden>${meter('wzM3', 'Nachbessern')}</div>${meter('wzM0', 'Übung 1: beugen und strecken')}${meter('wzM1', 'Übung 2: kippen und drehen')}${meter('wzM2', 'Bewegungszeit')}`;
+      case JS.TILT: return `${level('wzLev', 'Neigung der Gelenkachse')}<div class="center">${ring('wzRing')}</div>`;
+      case JS.STRAIGHT: return `<div class="center" id="wzArmed" hidden>${ring('wzRing')}</div>`;
+      case JS.FLEX: return `${level('wzLev', 'Beugung')}<div class="center">${ring('wzRing')}</div>`;
+      default: return '';
+    }
+  }
+  function updWidget(c, mode, step) {
+    if (mode === 1 && step === 0) {
+      const n = Math.min(c.a[0], c.a[1]);
+      $('wzN').textContent = n;
+      $('wzDots').querySelectorAll('i').forEach((d, i) => { d.dataset.on = i < n ? '1' : '0'; });
+      setRing('wzRing', c.hold);
+      setMeter('wzCov', Math.min(100, Math.min(c.a[2], c.a[3]) / 45 * 100), false);
+      const chip = $('wzNew');
+      const any = c.live < 179;
+      chip.hidden = !any || c.hint === HI.POSE_DONE;
+      if (!chip.hidden) { const fresh = c.live >= 30; chip.dataset.ok = fresh ? '1' : '0'; chip.textContent = fresh ? 'Neue Lage' : `Zu ähnlich wie eine erfasste Lage (${fmt(c.live, 0)}°, nötig 30°)`; }
+      return;
+    }
+    if (mode === 3) { setRing('wzRing', c.hold); $('wzLiveTxt').textContent = `Anzeige mit dem bisherigen Nullpunkt: ${fmt(c.live, 1)}°`; return; }
+    if (mode !== 2) return;
+    switch (c.step) {
+      case JS.REST: setRing('wzRing', c.hold); break;
+      case JS.MOVE: {
+        const h = c.hint;
+        setMeter('wzM0', c.a[0], h === HI.EX_FLEX || h === HI.MORE_SHANK || h === HI.MORE_RANGE);
+        setMeter('wzM1', c.a[1], h === HI.EX_TILT || h === HI.MORE_THIGH);
+        setMeter('wzM2', c.a[2], false);
+        const retry = h === HI.MORE_THIGH || h === HI.MORE_SHANK || h === HI.MORE_RANGE;
+        $('wzM3w').hidden = !retry; if (retry) setMeter('wzM3', c.hold, true);
+        break;
+      }
+      case JS.TILT: setLevel('wzLev', c.live, c.a[0] || 15, Math.max(45, (c.a[0] || 15) * 2)); setRing('wzRing', c.hold); break;
+      case JS.STRAIGHT: { const ar = $('wzArmed'); if (ar) { ar.hidden = !c.a[0]; setRing('wzRing', c.hold); } break; }
+      case JS.FLEX: setLevel('wzLev', c.live, 30, 100); setRing('wzRing', c.hold); break;
+      default: break;
+    }
+  }
+  function renderWzConn() { const e = $('wzConn'); if (e) e.hidden = conn === 'connected'; }
+
+  // ---- Ergebnis --------------------------------------------------------------------------
+  function wzResult(c) {
+    clearTimeout(wz.timer);
+    wz.phase = 'result'; wz.res = c; wz.key = '';
+    const ok = c.result === RS.OK || c.result === RS.OK_PARTIAL;
+    fb(ok ? 'ok' : (c.result === RS.ABORTED ? 'step' : 'fail'));
     $('wzClose').textContent = 'Schliessen';
-    $('wzBody').innerHTML = `<div class="result" data-ok="${ok ? 1 : 0}"><div class="mark">${ok ? '✓' : '!'}</div><h2>${esc(R[0])}</h2><p>${esc(detail)}</p></div>`;
-    const next = ok && c.resultMode === 1 ? ['joint', 'Weiter: Gelenk kalibrieren'] : (ok && c.resultMode === 2 ? ['zero', 'Weiter: Nullpunkt setzen'] : null);
-    $('wzFoot').innerHTML = (ok ? '' : '<button class="btn" id="wzAgain">Noch einmal</button>') + (next ? `<button class="btn" id="wzNext">${esc(next[1])}</button>` : '') + '<button class="btn sec" id="wzDone">Fertig</button>';
-    $('wzDone').addEventListener('click', closeWizard);
-    if (!ok) $('wzAgain').addEventListener('click', () => openWizard(wz.kind));
-    if (next) $('wzNext').addEventListener('click', () => openWizard(next[0]));
+    if (ok && c.resultMode === 2) { wzCheck(c); return; }
+    let title, detail, foot = '', warn = '';
+    if (ok && c.resultMode === 1) {
+      const mg = c.q1 / 100;
+      title = c.result === RS.OK ? 'Sensoren eingemessen' : 'Sensoren teilweise eingemessen';
+      detail = `Restfehler ${fmt(mg, 1)} mg (${mg <= 2 ? 'sehr gut' : mg <= 5 ? 'gut' : 'mässig: ruhiger ablegen bringt mehr'}). Dauerhaft gespeichert.` + (c.result === RS.OK_PARTIAL ? ' Für die Drehsensoren fehlten Drehungen um alle Achsen; die Messung funktioniert trotzdem.' : '') + ((c.a[4] || c.a[5]) ? ` ${Math.max(c.a[4], c.a[5])} unruhige Lage(n) wurden ignoriert.` : '');
+      foot = `<button class="btn" id="wzNext">Weiter: Anlegen</button><button class="btn sec" id="wzDone">Fertig</button>`;
+    } else if (ok && c.resultMode === 3) {
+      const before = c.q1 / 100, ref = c.q2 / 100, shift = before - ref;
+      title = 'Nullpunkt gesetzt';
+      detail = `Diese Haltung zeigt jetzt ${fmt(ref, 1)}°. Vorher zeigte das Gerät hier ${fmt(before, 1)}°.`;
+      if (Math.abs(shift) >= 10) warn = `Das ist eine grosse Änderung (${fmt(Math.abs(shift), 0)}°). Warst du wirklich ganz gestreckt? Wenn nicht: «Rückgängig» tippen.`;
+      foot = (c.undo ? '<button class="btn sec" id="wzUndo">Rückgängig</button>' : '') + '<button class="btn" id="wzDone">Fertig</button>';
+    } else {
+      const f = FAIL[c.result] || ['Nicht geklappt', 'Bitte noch einmal versuchen.'];
+      title = f[0]; detail = f[1];
+      foot = (c.result === RS.ABORTED ? '' : `<button class="btn" id="wzAgain">Noch einmal</button>`) + '<button class="btn sec" id="wzDone">Schliessen</button>';
+      if (c.result === RS.NEED_JOINT) foot = '<button class="btn" id="wzGoJoint">Anlegen starten</button><button class="btn sec" id="wzDone">Schliessen</button>';
+    }
+    const good = ok;
+    $('wzBody').innerHTML = `<div class="result" data-ok="${good ? 1 : (c.result === RS.ABORTED ? 2 : 0)}"><div class="mark">${good ? '✓' : (c.result === RS.ABORTED ? '–' : '!')}</div><h2>${esc(title)}</h2><p>${esc(detail)}</p></div>` + (warn ? `<div class="banner warnbox"><b>Bitte prüfen</b>${esc(warn)}</div>` : '');
+    $('wzFoot').innerHTML = foot;
+    const on = (id, f) => { const e = $(id); if (e) e.addEventListener('click', f); };
+    on('wzDone', closeWizard);
+    on('wzAgain', () => openWizard(wz.kind));
+    on('wzNext', () => openWizard('joint'));
+    on('wzGoJoint', () => openWizard('joint'));
+    on('wzUndo', undoLast);
+  }
+
+  // Nach "Anlegen": Kontrolle mit dem Live-Winkel. Der Alarm ist dabei kurz stumm.
+  function wzCheck(c) {
+    wz.phase = 'check';
+    if (live && live.silence === P.SILENCE.NONE) { wz.muted = true; dev.send(P.cmd.mute(2)).catch(() => { wz.muted = false; }); }
+    const leg = onLeg();
+    const axis = c.q1 / 100, cons = c.q2 / 100, range = c.a[4] * 2;
+    const qual = `Gelenkachse auf ±${fmt(axis, 1)}° bestimmt, Übereinstimmung ${fmt(cons, 1)}° (${cons <= 1.5 ? 'gut' : 'mässig: sitzen die Sensoren fest?'}), Bewegungsumfang ${range}°.`;
+    $('wzBody').innerHTML = stepsBar(9) + `<div class="result small" data-ok="1"><div class="mark">✓</div><h2>Angelegt</h2><p class="muted">${esc(qual)}</p></div>
+      <div class="block check"><h3>Kurz prüfen</h3><p>${leg ? 'Bein ganz strecken: die Anzeige sollte etwa 0° zeigen. Dann beugen: sie folgt.' : 'Gelenk ganz strecken: etwa 0°. Dann beugen: die Anzeige folgt.'}</p>
+      <div class="checkangle" id="wzCheckAngle">–</div><p class="muted center" id="wzCheckNote">${wz.muted ? 'Der Alarm ist während der Kontrolle 2 Minuten stumm.' : ''}</p></div>
+      <div id="wzWrong" hidden class="block"><h3>Was stimmt nicht?</h3><div class="col"><button class="btn sec" id="wzRedo">Nochmals anlegen</button><button class="btn sec" id="wzZero">Nur 0° neu setzen</button>${c.undo ? '<button class="btn sec" id="wzBack">Vorherige Kalibrierung zurück</button>' : ''}</div></div>`;
+    $('wzFoot').innerHTML = '<button class="btn sec" id="wzNo">Stimmt nicht</button><button class="btn" id="wzYes">Passt</button>';
+    $('wzYes').addEventListener('click', closeWizard);
+    $('wzNo').addEventListener('click', () => { $('wzWrong').hidden = false; $('wzWrong').scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    $('wzRedo').addEventListener('click', () => { unmuteCheck(); openWizard('joint'); });
+    $('wzZero').addEventListener('click', () => { unmuteCheck(); openWizard('zero'); });
+    if ($('wzBack')) $('wzBack').addEventListener('click', () => { unmuteCheck(); undoLast(); });
+    updCheck();
+  }
+  function unmuteCheck() { if (wz.muted) { wz.muted = false; dev.send(P.cmd.mute(0)).catch(() => {}); } }
+  function updCheck() {
+    if (wz.phase !== 'check') return;
+    const e = $('wzCheckAngle'); if (!e) return;
+    e.innerHTML = (live && live.angle !== null) ? esc(fmt(live.angle, 1)) + '<sup>°</sup>' : '–';
   }
 
   // ---------------------------------------------------------------------------
@@ -462,6 +803,13 @@
   renderConn(); renderPair(); applyWake();
   // Zum Testen der Oberflaeche:  index.html?demo  bzw.  ?demo&view=alarm
   const qs = new URLSearchParams(location.search);
-  if (qs.has('demo')) { demo = true; attach(new window.DemoDevice()); dev.connect().then(() => { show(qs.get('view') || 'live'); if (qs.get('wizard')) { openWizard(qs.get('wizard')); if (qs.has('run')) startCal(null); } }); }
-  window.KneeApp = { show, openWizard };
+  if (qs.has('rig')) { prefs.rig = qs.get('rig') === 'rig' ? 'rig' : 'leg'; }
+  if (qs.has('demo')) {
+    demo = true; attach(new window.DemoDevice({ tilt: qs.has('tilt'), oldfw: qs.has('oldfw'), uncal: qs.has('uncal') }));
+    dev.connect().then(() => {
+      show(qs.get('view') || 'live');
+      if (qs.get('wizard')) { openWizard(qs.get('wizard')); if (qs.has('run')) { wzStart(qs.has('ref') ? parseFloat(qs.get('ref')) : null); if (qs.get('at')) setTimeout(() => dev.demoJump(qs.get('at')), 300); } }
+    });
+  }
+  window.KneeApp = { show, openWizard, get dev() { return dev; } };
 })();

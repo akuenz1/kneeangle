@@ -1,4 +1,6 @@
-// KneeAngle - Bluetooth-Protokoll Version 1 (Dekoder/Enkoder)
+// KneeAngle - Bluetooth-Protokoll Version 2 (Dekoder/Enkoder)
+// Version 2 (Firmware 2.1): neues CAL-Paket (20 Byte) fuer die gefuehrten Kalibrier-Ablaeufe,
+// Befehle 'n' (weiter/bestaetigen) und 'U' (rueckgaengig). Alle anderen Pakete wie Version 1.
 // Laeuft im Browser (window.KneeProto) und in Node (module.exports) - siehe test/protocol.test.js
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -10,7 +12,7 @@
     service: uuid('0001'), live: uuid('0002'), status: uuid('0003'), cal: uuid('0004'), msg: uuid('0005'),
     cmd: uuid('0006'), settings: uuid('0007'), log: uuid('0008'), auth: uuid('0009'), diag: uuid('000a')
   };
-  const PROTO_VERSION = 1;
+  const PROTO_VERSION = 2;
   const CMD = { CHAR: 1, ZERO_REF: 2, MUTE: 3, VIB_TEST: 4, SET_TIME: 5, LOG_READ: 6, LOG_CLEAR: 7, STATS_RESET: 8, MOTOR_CAL: 9, INFO: 10, FORGET: 12 };
   const STATE = { NORMAL: 0, APPROACH: 1, OVER: 2, INVALID: 3, CAL: 4 };
   const SILENCE = { NONE: 0, MUTED: 1, OFF: 2 };
@@ -18,8 +20,14 @@
   const SF = { REST1: 1, REST2: 2, ACC: 4, VERT: 8, SAT: 16, NOSENSCAL: 32, BIAS: 64, REINIT: 128, NOZERO: 256, NOJOINT: 512, OFFLINE: 1024 };
   const CB = { ACC1: 1, ACC2: 2, GYR1: 4, GYR2: 8, JOINT: 16, ZERO: 32, LEVER: 64, MOTORCAL: 128 };
   const HB = { S1: 1, S2: 2, MOTOR: 4, BATT: 8, AUTHED: 16, WINDOW: 32, OWNER: 64, TIME: 128 };
-  const HINT = { NONE: 0, HOLD_STILL: 1, NEW_POSE: 2, MOVING: 3, MOVE: 4, TILT_MORE_1: 5, TILT_MORE_2: 6, PAUSE_SHORT: 7, STRAIGHT: 8, FLEX: 9, AXIS_VERTICAL: 10, COMPUTING: 11, FLEX_MORE: 12, GOOD: 13 };
-  const RESULT = { NONE: 0, OK: 1, OK_PARTIAL: 2, ABORTED: 3, ACC_FIT: 4, TOO_LITTLE_MOTION: 5, AXIS1: 6, AXIS2: 7, SIGN: 8, NO_REST: 9, TIMEOUT: 10, TOO_FEW: 11, NEED_JOINT: 12 };
+  // Kalibrierung: Prozedur (mode), Schritte von "Anlegen" (step), Hinweise und Ergebnisse (wie KneeSystem.h)
+  const CALMODE = { NONE: 0, SENSOR: 1, JOINT: 2, ZERO: 3 };
+  const JSTEP = { REST: 0, MOVE: 1, COMPUTE: 2, TILT: 3, STRAIGHT: 4, FLEX: 5 };
+  const HINT = { NONE: 0, HOLD_STILL: 1, WAIT_REST: 2, COMPUTING: 3,
+                 PLACE: 10, POSE_DONE: 11, POSE_SAME: 12, UNSTEADY: 13, OTHER_SIDES: 14,
+                 EX_FLEX: 20, EX_TILT: 21, EX_BOTH: 22, MORE_THIGH: 23, MORE_SHANK: 24, MORE_RANGE: 25,
+                 TILT: 30, STRAIGHT_CONFIRM: 31, AXIS_VERTICAL: 32, FLEX: 33 };
+  const RESULT = { NONE: 0, OK: 1, OK_PARTIAL: 2, ABORTED: 3, ACC_FIT: 4, TOO_LITTLE_MOTION: 5, AXIS1: 6, AXIS2: 7, SIGN: 8, NO_REST: 9, TIMEOUT: 10, TOO_FEW: 11, NEED_JOINT: 12, UNDONE: 13, RANGE: 14 };
 
   const dv = (buf) => (buf instanceof DataView ? buf : new DataView(buf.buffer || buf, buf.byteOffset || 0, buf.byteLength));
   const i16inv = (v) => (v === 0x7fff ? null : v);
@@ -47,15 +55,17 @@
       rateS1: d.getUint8(17) * 2, rateS2: d.getUint8(18) * 2, warnCount: d.getUint8(19)
     };
   }
+  // CAL (20 Byte, ab Protokoll 2). Aelteres 19-Byte-Paket -> null (Firmware zu alt fuer den Assistenten)
   function decodeCal(buf) {
     const d = dv(buf);
-    if (d.byteLength < 19) return null;
-    const p = d.getUint8(0), sec = d.getUint32(11, true);
+    if (d.byteLength < 20) return null;
+    const p = d.getUint8(0);
     const a = []; for (let i = 0; i < 6; i++) a.push(d.getUint8(5 + i));
     return {
-      mode: p & 3, step: (p >> 2) & 3, resultMode: (p >> 4) & 3, progress: d.getUint8(1), hint: d.getUint8(2),
-      result: d.getUint8(3), resultSeq: d.getUint8(4), a, sectorMask: sec & 0x03ffffff, curSector: (sec >>> 27) & 31,
-      q1: d.getInt16(15, true), q2: d.getInt16(17, true)
+      mode: p & 3, step: (p >> 2) & 7, resultMode: (p >> 5) & 3, undo: !!(p & 0x80),
+      progress: d.getUint8(1), hint: d.getUint8(2), result: d.getUint8(3), resultSeq: d.getUint8(4), a,
+      secLeft: d.getUint16(11, true), live: d.getInt16(13, true) / 100,
+      q1: d.getInt16(15, true), q2: d.getInt16(17, true), hold: d.getUint8(19)
     };
   }
   function decodeDiag(buf) {
@@ -140,6 +150,6 @@
     claim: (token) => { const b = new Uint8Array(17); b[0] = 1; b.set(token, 1); return b; },
     prove: (mac) => { const b = new Uint8Array(17); b[0] = 2; b.set(mac, 1); return b; }
   };
-  return { UUID, PROTO_VERSION, CMD, STATE, SILENCE, AF, SF, CB, HB, HINT, RESULT, decodeLive, decodeStatus, decodeCal, decodeDiag,
+  return { UUID, PROTO_VERSION, CMD, STATE, SILENCE, AF, SF, CB, HB, CALMODE, JSTEP, HINT, RESULT, decodeLive, decodeStatus, decodeCal, decodeDiag,
            decodeSettings, encodeSettings, validateSettings, decodeLog, decodeAuth, authMac, cmd, auth };
 });
