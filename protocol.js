@@ -10,7 +10,8 @@
   const uuid = (x) => `4b4e${x}-6b6e-6565-616e-676c65303031`;
   const UUID = {
     service: uuid('0001'), live: uuid('0002'), status: uuid('0003'), cal: uuid('0004'), msg: uuid('0005'),
-    cmd: uuid('0006'), settings: uuid('0007'), log: uuid('0008'), auth: uuid('0009'), diag: uuid('000a')
+    cmd: uuid('0006'), settings: uuid('0007'), log: uuid('0008'), auth: uuid('0009'), diag: uuid('000a'),
+    caltime: uuid('000b')   // ab Firmware 2.2
   };
   const PROTO_VERSION = 2;
   const CMD = { CHAR: 1, ZERO_REF: 2, MUTE: 3, VIB_TEST: 4, SET_TIME: 5, LOG_READ: 6, LOG_CLEAR: 7, STATS_RESET: 8, MOTOR_CAL: 9, INFO: 10, FORGET: 12 };
@@ -150,6 +151,14 @@
     claim: (token) => { const b = new Uint8Array(17); b[0] = 1; b.set(token, 1); return b; },
     prove: (mac) => { const b = new Uint8Array(17); b[0] = 2; b.set(mac, 1); return b; }
   };
-  return { UUID, PROTO_VERSION, CMD, STATE, SILENCE, AF, SF, CB, HB, CALMODE, JSTEP, HINT, RESULT, decodeLive, decodeStatus, decodeCal, decodeDiag,
+  // CALTIME (13 Byte, ab Firmware 2.2): Zeitpunkte der Kalibrierungen, Unix-Zeit in s, 0 = unbekannt
+  function decodeCalTime(buf) {
+    const d = dv(buf);
+    if (d.byteLength < 13) return null;
+    const t = (o) => d.getUint32(o, true) || 0;
+    return { sensor: t(0), joint: t(4), zero: t(8), timeValid: !!(d.getUint8(12) & 1) };
+  }
+
+  return { UUID, PROTO_VERSION, CMD, STATE, SILENCE, AF, SF, CB, HB, CALMODE, JSTEP, HINT, RESULT, decodeLive, decodeStatus, decodeCal, decodeDiag, decodeCalTime,
            decodeSettings, encodeSettings, validateSettings, decodeLog, decodeAuth, authMac, cmd, auth };
 });

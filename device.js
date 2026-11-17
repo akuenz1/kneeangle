@@ -61,6 +61,15 @@
       await sub('log', (v) => { const r = P.decodeLog(v); if (r) this.emit('log', r); });
       await sub('msg', (v) => this.emit('msg', new TextDecoder().decode(v)));
       await sub('diag', (v) => { const d = P.decodeDiag(v); if (d) this.emit('diag', d); });
+      // ab Firmware 2.2: Zeitpunkte der Kalibrierungen (aeltere Firmware hat das Merkmal nicht)
+      this.ch.caltime = null;
+      try { this.ch.caltime = await svc.getCharacteristic(P.UUID.caltime); } catch (e) { this.emit('caltimes', null); }
+      if (this.ch.caltime) {
+        try {
+          await sub('caltime', (v) => { const t = P.decodeCalTime(v); if (t) this.emit('caltimes', t); });
+          const t = P.decodeCalTime(await this.ch.caltime.readValue()); if (t) this.emit('caltimes', t);
+        } catch (e) { this.emit('caltimes', null); }
+      }
       // Anfangswerte
       const st = P.decodeStatus(await this.ch.status.readValue()); if (st) this.emit('status', st);
       const se = P.decodeSettings(await this.ch.settings.readValue()); if (se) this.emit('settings', se);
@@ -145,11 +154,14 @@
       this.cs = null; this.undoMode = 0;
       this.log = []; this.seq = 0;
       const now = Math.floor(Date.now() / 1000);
+      // Zeitpunkte der Kalibrierungen wie Firmware 2.2 (Sensoren vor 26 h, Anlegen/Nullpunkt vor 84 min)
+      this.times = this.opts.uncal ? { sensor: 0, joint: 0, zero: 0 } : { sensor: now - 26 * 3600, joint: now - 84 * 60, zero: now - 84 * 60 };
+      this.timesPrev = { joint: 0, zero: 0 };
       for (let i = 0; i < 6; i++) this.log.push({ index: i, type: 1, flags: 1, seq: i + 1, time: now - (6 - i) * 5400, timeValid: true, durS: 0.4 + i * 0.3, extreme: -6 - i * 0.7, limit: -5, predictedOnly: i === 2, silenced: false });
     }
     static get supported() { return true; }
     async connect() {
-      this.connected = true; this.emit('conn', 'connected'); this.emit('auth', this.authState); this.emit('settings', { ...this.set }); this._emitCal();
+      this.connected = true; this.emit('conn', 'connected'); this.emit('auth', this.authState); this.emit('settings', { ...this.set }); this._emitCal(); this._emitTimes();
       this.timer = setInterval(() => this._tick(), 50); this.slow = setInterval(() => this._status(), 1000); this._status();
     }
     disconnect() { clearInterval(this.timer); clearInterval(this.slow); this.connected = false; this.emit('conn', 'disconnected'); }
@@ -175,6 +187,7 @@
     }
     // ---- Kalibrierung ----
     _emitCal() { this.emit('cal', { ...this.cal, a: [...this.cal.a] }); }
+    _emitTimes() { this.emit('caltimes', { ...this.times, timeValid: true }); }
     _start(mode, ref) {
       if (this.cal.mode) return;
       if (mode === 3 && !((this.calBits & P.CB.JOINT) && (this.calBits & P.CB.ZERO))) { this.cal.mode = 3; this._result(R.NEED_JOINT); return; }
@@ -190,6 +203,13 @@
       const m = this.cal.mode;
       Object.assign(this.cal, { mode: 0, step: 0, resultMode: m, result, resultSeq: (this.cal.resultSeq + 1) & 255, hint: 0, progress: 0, hold: 0, secLeft: 0, live: 0, q1: q1 || 0, q2: q2 || 0 });
       this.cs = null; this._emitCal();
+      // Zeitpunkte nachfuehren (wie stampCalResults in der Firmware)
+      const now = Math.floor(Date.now() / 1000), T = this.times;
+      if ((result === R.OK || result === R.OK_PARTIAL) && m === 1) T.sensor = now;
+      else if (result === R.OK && (m === 2 || m === 3)) { this.timesPrev = { joint: T.joint, zero: T.zero }; if (m === 2) T.joint = now; T.zero = now; }
+      else if (result === R.UNDONE) { T.joint = this.timesPrev.joint; T.zero = this.timesPrev.zero; }
+      else return;
+      this._emitTimes();
     }
     _calTick(dt) {
       const c = this.cs, k = this.cal;

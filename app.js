@@ -2,13 +2,13 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '2.3.1';
+  const APP_VERSION = '3.0.1';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
   let dev = null, demo = false;
-  let live = null, status = null, settings = null, edit = null, cal = null, diag = null;
+  let live = null, status = null, settings = null, edit = null, cal = null, diag = null, devTimes;
   let auth = { authed: false, windowOpen: false, ownerSet: false };
   let conn = 'disconnected';
   const prefs = { phoneSound: true, phoneVib: true, wake: false };
@@ -28,7 +28,8 @@
     document.querySelectorAll('#tabs button').forEach((b) => { if (b.dataset.tab === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     const inApp = v !== 'welcome';
     $('tabs').hidden = !inApp; $('top').hidden = !inApp;
-    if (v === 'log') drawChart();
+    if (v === 'log') drawChart($('chart'), chartSpan * 1000);
+    if (v === 'live') drawChart($('spark'), 120000);
     window.scrollTo(0, 0);
   }
   document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
@@ -45,6 +46,8 @@
     d.on('cal', onCal);
     d.on('auth', (a) => { auth = a; renderPair(); renderBanners(); });
     d.on('diag', (x) => { diag = x; renderDiag(); });
+    devTimes = undefined;
+    d.on('caltimes', (t) => { devTimes = t ? { sensor: t.sensor * 1000, joint: t.joint * 1000, zero: t.zero * 1000 } : null; renderCalTab(); });
     d.on('msg', (t) => { const c = $('console'); c.textContent = (c.textContent + t).slice(-6000); c.scrollTop = c.scrollHeight; });
     d.on('log', onLogPacket);
   }
@@ -56,14 +59,21 @@
   }
   $('btnStart').addEventListener('click', connectReal);
   $('btnDemo').addEventListener('click', async () => { demo = true; attach(new window.DemoDevice()); ensureAudio(); await dev.connect(); show('live'); });
+  async function disconnectAsk() {
+    if (!dev) { show('welcome'); return; }
+    if (conn === 'connected' && !await ask(demo ? 'Ansicht ohne Gerät beenden?' : 'Verbindung zum Gerät trennen? Das Gerät misst und warnt weiter.', 'Trennen', 'Abbrechen')) return;
+    dev.disconnect(); if (demo) show('welcome');
+  }
   $('btnConn').addEventListener('click', () => {
-    if (conn === 'connected' || conn === 'reconnecting' || conn === 'connecting') { dev.disconnect(); if (demo) { show('welcome'); } }
+    if (conn === 'connected' || conn === 'reconnecting' || conn === 'connecting') disconnectAsk();
     else if (demo) { show('welcome'); } else connectReal();
   });
+  $('btnDisc').addEventListener('click', disconnectAsk);
   function renderConn() {
-    const map = { connected: ['on', 'verbunden', 'Trennen'], connecting: ['wait', 'verbinde …', 'Abbrechen'], reconnecting: ['wait', 'Verbindung verloren, suche Gerät …', 'Abbrechen'], disconnected: ['off', 'nicht verbunden', 'Verbinden'] };
+    const map = { connected: ['on', demo ? 'Ansicht ohne Gerät' : 'verbunden', demo ? 'Demo' : 'Verbunden'], connecting: ['wait', 'verbinde …', 'Verbinde …'], reconnecting: ['wait', 'Verbindung verloren, suche Gerät …', 'Suche …'], disconnected: ['off', 'nicht verbunden', 'Verbinden'] };
     const m = map[conn] || map.disconnected;
-    $('connDot').dataset.s = m[0]; $('connText').textContent = m[1] + (demo && conn === 'connected' ? ' (Demo)' : ''); $('btnConn').textContent = m[2];
+    $('connDot').dataset.s = m[0]; $('btnConn').dataset.s = m[0]; $('connText').textContent = m[1]; $('connBtn').textContent = m[2];
+    $('btnDisc').hidden = conn !== 'connected';
     if (typeof renderPair === 'function') renderPair();
     if (typeof renderBanners === 'function') renderBanners();
   }
@@ -71,7 +81,7 @@
   let toastTimer = null;
   function toast(text, err) {
     let t = $('toast');
-    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'banner'; t.style.cssText = 'position:fixed;left:14px;right:14px;bottom:calc(var(--tab-h) + 18px);z-index:30;box-shadow:0 6px 20px rgba(31,42,51,.25)'; document.body.appendChild(t); }
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
     t.className = 'banner' + (err ? ' err' : ''); t.textContent = text; t.hidden = false;
     clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, err ? 12000 : 4000);
   }
@@ -105,21 +115,9 @@
   // ---------------------------------------------------------------------------
   //  Messen
   // ---------------------------------------------------------------------------
-  const G = { cx: 150, cy: 96, r: 112, a0: -20, a1: 120 };
-  const pt = (deg, r) => [G.cx + r * Math.cos(deg * Math.PI / 180), G.cy + r * Math.sin(deg * Math.PI / 180)];
-  function arc(a0, a1, r) {
-    a0 = Math.max(G.a0, Math.min(G.a1, a0)); a1 = Math.max(G.a0, Math.min(G.a1, a1));
-    if (a1 - a0 < 0.2) return '';
-    const p0 = pt(a0, r), p1 = pt(a1, r);
-    return `M${p0[0].toFixed(1)} ${p0[1].toFixed(1)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${p1[0].toFixed(1)} ${p1[1].toFixed(1)}`;
-  }
-  (function initGauge() {
-    $('gScale').setAttribute('d', arc(G.a0, G.a1, G.r));
-    const t0 = pt(0, G.r + 12), t90 = pt(90, G.r + 20);
-    $('gT0').setAttribute('x', t0[0]); $('gT0').setAttribute('y', t0[1] + 4);
-    $('gT90').setAttribute('x', t90[0]); $('gT90').setAttribute('y', t90[1]);
-  })();
-  let lastZoneKey = '', rafPending = false, lastPhoneState = -1;
+  const kneeView = window.KneeArt.gauge($('knee'));
+  const heroSvg = $('heroKnee'); heroSvg.__g = window.KneeArt.gauge(heroSvg); heroSvg.dataset.kanim = 'hero';
+  let rafPending = false, lastPhoneState = -1;
   function onLive(l) {
     pushChart(l); recordRow(l); phoneAlarm(l); updCheck();
     if (!rafPending) { rafPending = true; requestAnimationFrame(() => { rafPending = false; renderLive(); }); }
@@ -135,36 +133,26 @@
     const body = document.body;
     if (conn !== 'connected' || !live) {
       body.dataset.state = 'off'; $('angle').textContent = '–';
+      kneeView.set(null, settings ? settings.limit : -5, settings ? settings.zone : 10, !settings || settings.approachOn, 'off');
       $('stateLine').textContent = conn === 'reconnecting' ? 'Verbindung verloren' : (conn === 'connecting' ? 'Verbinde …' : 'Nicht verbunden');
       $('subLine').textContent = conn === 'reconnecting' ? 'Das Gerät misst und warnt selbständig weiter.' : '';
-      $('silBar').hidden = true; return;
+      $('silBar').hidden = true; renderAlarmHead(); return;
     }
     const l = live, lim = l.effLimit, zone = settings ? settings.zone : 10;
-    const key = lim.toFixed(1) + '|' + zone + '|' + (settings && settings.approachOn);
-    if (key !== lastZoneKey) {
-      lastZoneKey = key;
-      $('gOver').setAttribute('d', arc(G.a0, lim, G.r));
-      $('gApp').setAttribute('d', settings && settings.approachOn ? arc(lim, lim + zone, G.r) : '');
-      const a = pt(lim, 62), b = pt(lim, G.r + 8);
-      const L = $('gLimit'); L.setAttribute('x1', a[0]); L.setAttribute('y1', a[1]); L.setAttribute('x2', b[0]); L.setAttribute('y2', b[1]);
-    }
     let st = 'ok', text = 'Im sicheren Bereich';
     if (l.state === P.STATE.CAL) { st = 'invalid'; text = 'Kalibrierung läuft'; }
     else if (l.angle === null || l.state === P.STATE.INVALID) { st = 'invalid'; text = invalidReason(); }
     else if (l.state === P.STATE.OVER) { st = 'over'; text = (l.aflags & P.AF.PREDICTED) ? 'Achtung, Grenze!' : 'Überstreckt'; }
     else if (l.state === P.STATE.APPROACH) { st = 'approach'; text = 'Nahe an der Grenze'; }
     body.dataset.state = st;
+    kneeView.set(l.angle, lim, zone, !settings || settings.approachOn, st);
     if (l.angle === null) { $('angle').textContent = '–'; }
-    else {
-      $('angle').innerHTML = esc(fmt(l.angle, 1)) + '<sup>°</sup>';
-      const ang = Math.max(G.a0, Math.min(G.a1 + 15, l.angle)), e = pt(ang, 100);
-      const s = $('gShank'); s.setAttribute('x2', e[0].toFixed(1)); s.setAttribute('y2', e[1].toFixed(1));
-    }
+    else $('angle').innerHTML = esc(fmt(l.angle, 1)) + '<sup>°</sup>';
     $('stateLine').textContent = text;
     let sub = '';
     if (l.angle !== null && l.state !== P.STATE.CAL) {
       if (l.aflags & P.AF.UNRELIABLE) sub = `Messung unsicher (±${fmt(l.sigma, 1)}°). Bein kurz ruhig halten.`;
-      else sub = `Grenze bei ${fmt(lim, 1)}°, Genauigkeit ±${fmt(Math.max(0.1, l.sigma), 1)}°`;
+      else sub = `Grenze ${fmt(lim, 1)}° · Genauigkeit ±${fmt(Math.max(0.1, l.sigma), 1)}°`;
       if (l.sysFlags & P.SF.VERT) sub += ' (Seitenlage: weniger genau)';
     }
     $('subLine').textContent = sub;
@@ -173,18 +161,26 @@
     if (l.silence === P.SILENCE.OFF) { sb.hidden = false; $('silText').textContent = 'Alarm ist ausgeschaltet'; }
     else if (l.silence === P.SILENCE.MUTED) { const r = status ? status.muteRemainS : 0; sb.hidden = false; $('silText').textContent = `Stumm, noch ${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')} min`; }
     else sb.hidden = true;
-    // Reiter Alarm: Stummschaltung
-    const ms = $('muteState');
-    if (l.silence === P.SILENCE.OFF) ms.textContent = 'Alarm ist dauerhaft ausgeschaltet.';
-    else if (l.silence === P.SILENCE.MUTED) ms.textContent = $('silText').textContent + '.';
-    else ms.textContent = 'Alarm ist aktiv.';
-    $('btnArm2').hidden = l.silence === P.SILENCE.NONE;
+    renderAlarmHead();
+  }
+  // Reiter Alarm: Kopf mit Zustand und Stummschaltung
+  function renderAlarmHead() {
+    const h = $('alarmHead'), l = live;
+    let s = 'on', title = 'Alarm aktiv', sub = settings ? `Vibriert ab ${fmt(settings.limit, 1)}°` + (settings.approachOn ? `, leichte Pulse ab ${fmt(settings.limit + settings.zone, 1)}°` : '') : '–';
+    if (conn !== 'connected') { s = 'off'; title = 'Nicht verbunden'; sub = 'Das Gerät warnt trotzdem selbständig.'; }
+    else if (l && l.silence === P.SILENCE.OFF) { s = 'off'; title = 'Alarm ausgeschaltet'; sub = 'Das Gerät vibriert nicht.'; }
+    else if (l && l.silence === P.SILENCE.MUTED) { const r = status ? status.muteRemainS : 0; s = 'muted'; title = 'Stumm'; sub = `Noch ${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')} min, dann wieder aktiv.`; }
+    h.dataset.s = s; $('alarmTitle').textContent = title; $('muteState').textContent = sub;
+    $('btnArm2').hidden = !(conn === 'connected' && l && l.silence !== P.SILENCE.NONE);
+    $('muteBtns').hidden = conn !== 'connected' || (l && l.silence === P.SILENCE.OFF);
   }
   function renderStatus() {
     if (!status) return;
     $('fMin').textContent = status.min === null ? '–' : fmt(status.min, 0) + '°';
     $('fMax').textContent = status.max === null ? '–' : fmt(status.max, 0) + '°';
     $('fOver').textContent = status.overCount; $('lOver').textContent = status.overCount; $('lWarn').textContent = status.warnCount; $('lApp').textContent = status.approachCount;
+    $('fOver').dataset.on = status.overCount > 0 ? '1' : '0'; $('lOver').dataset.on = status.overCount > 0 ? '1' : '0';
+    $('lWarn').dataset.on = status.warnCount > 0 ? '1' : '0'; $('lApp').dataset.on = status.approachCount > 0 ? '1' : '0';
     const bt = $('batt');
     if ((status.hwBits & P.HB.BATT) && status.battMv > 0) {
       const pct = Math.max(0, Math.min(100, Math.round((status.battMv - 3300) / (4150 - 3300) * 100)));
@@ -234,46 +230,8 @@
   const isCalibrated = () => !!status && (status.calBits & P.CB.JOINT) && (status.calBits & P.CB.ZERO);
   const sensorsDone = () => !!status && (status.calBits & P.CB.ACC1) && (status.calBits & P.CB.ACC2);
 
-  // ---- Strichzeichnungen ----------------------------------------------------
-  const SV = (body, cls) => `<svg class="pict${cls ? ' ' + cls : ''}" viewBox="0 0 320 170" aria-hidden="true">${body}</svg>`;
-  const FLOOR = '<path class="flr" d="M12 163H308"/>';
-  const CHAIR = '<path class="chr" d="M26 100h120M38 104v56M134 104v56M26 100V42"/>';
-  const PERSON = '<path class="ln" d="M58 92V40"/><circle class="hd" cx="58" cy="25" r="11"/><path class="ln" d="M58 92H170"/><rect class="sens" x="98" y="79" width="30" height="13" rx="3"/>';
-  const KNEE = '<circle class="knee" cx="170" cy="92" r="7"/>';
-  const SHANK = '<path class="ln" d="M170 92V154l24 2"/><rect class="sens" x="174" y="106" width="13" height="30" rx="3"/>';
-  const STOOL = '<path class="chr" d="M212 99h50M220 103v58M254 103v58"/>';
-  const UPPER = '<path class="wood" d="M46 92H160"/><rect class="sens" x="82" y="79" width="30" height="13" rx="3"/>';
-  const LOWER = '<path class="wood" d="M160 92H274"/><rect class="sens" x="204" y="79" width="30" height="13" rx="3"/>';
-  const HINGE = '<circle class="knee" cx="160" cy="92" r="8"/>';
-  const TABLE = '<path class="tbl" d="M20 101H300"/><path class="chr" d="M40 105v56M280 105v56"/>';
-  const ELL = '<path class="ar" d="M246 62a24 24 0 1 1-24 24"/><path class="ar" d="M222 86l-7-11M222 86l9-9"/>';
-  function pict(key) {
-    const leg = onLeg();
-    switch (key) {
-      case 'place': return leg
-        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<path class="lead" d="M113 78V56h34"/><text class="lbl b" x="151" y="61">Arduino</text><path class="lead" d="M188 121h26"/><text class="lbl b" x="218" y="126">Sensor</text>')
-        : SV(TABLE + UPPER + LOWER + HINGE + '<path class="lead" d="M97 78V56h30"/><text class="lbl b" x="131" y="61">Arduino</text><path class="lead" d="M219 78V56h22"/><text class="lbl b" x="245" y="61">Sensor</text>');
-      case 'rest': return leg
-        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<g class="calm"><path d="M236 40v22M248 40v22"/></g>')
-        : SV(TABLE + UPPER + LOWER + HINGE + '<g class="calm"><path d="M236 40v22M248 40v22"/></g>');
-      case 'exFlex': return leg
-        ? SV(FLOOR + CHAIR + PERSON + `<g class="anim aflex">${SHANK}</g>` + KNEE)
-        : SV(`<g transform="translate(0 52)">${UPPER}<g class="anim aflexr">${LOWER}</g>${HINGE}</g>`);
-      case 'exTilt': return leg
-        ? SV(FLOOR + CHAIR + '<path class="ln" d="M58 92V40"/><circle class="hd" cx="58" cy="25" r="11"/>' + `<g class="anim arock"><path class="ln" d="M58 92H170"/><rect class="sens" x="98" y="79" width="30" height="13" rx="3"/><g class="anim aflexs">${SHANK}</g>${KNEE}</g>` + ELL)
-        : SV(`<g transform="translate(0 30)"><g class="anim arockr">${UPPER}<g class="anim aflexrs">${LOWER}</g>${HINGE}</g></g>` + '<path class="ar" d="M296 16a20 20 0 1 1-20 20"/><path class="ar" d="M276 36l-6-10M276 36l8-8"/>');
-      case 'tilt': return SV('<text class="lbl b" x="20" y="22">' + (leg ? 'Achse quer durchs Knie' : 'Gelenkachse') + '</text><text class="lbl" x="20" y="42">schräg halten</text><path class="ref" d="M60 112H280"/><g transform="rotate(-28 160 112)"><path class="axis" d="M76 112H244"/></g><circle class="knee" cx="160" cy="112" r="9"/><path class="ar" d="M262 112a102 102 0 0 0-13-50"/><path class="ar" d="M249 62l-1 13M249 62l11 6"/><text class="lbl big" x="266" y="92">≥ 15°</text>');
-      case 'straight': return leg
-        ? SV(FLOOR + CHAIR + STOOL + PERSON + `<g transform="rotate(-90 170 92)">${SHANK}</g>` + KNEE)
-        : SV(TABLE + UPPER + LOWER + HINGE + '<text class="lbl big" x="150" y="140">0°</text>');
-      case 'flexHold': return leg
-        ? SV(FLOOR + CHAIR + PERSON + `<g>${SHANK}</g>` + KNEE + '<path class="ar" d="M232 92a62 62 0 0 1-44 59"/><path class="ar" d="M188 151l12 3M188 151l8-10"/>')
-        : SV(`<g transform="translate(0 52)"><path class="tbl" d="M20 101H300"/>${UPPER}<g transform="rotate(-90 160 92)">${LOWER}</g>${HINGE}<path class="ar" d="M232 92a72 72 0 0 0-72-72"/><path class="ar" d="M160 20l11-6M160 20l11 6"/></g>`);
-      case 'poses': return SV('<path class="tbl" d="M30 150H290"/><g class="anim apose"><rect class="box" x="100" y="58" width="120" height="54" rx="8"/><rect class="sens" x="112" y="70" width="30" height="13" rx="3"/><rect class="sens" x="178" y="87" width="30" height="13" rx="3"/><circle class="dotm" cx="160" cy="85" r="4"/></g>');
-      case 'compute': return SV('<circle class="spin-bg" cx="160" cy="85" r="44"/><circle class="spin" cx="160" cy="85" r="44"/>');
-      default: return '';
-    }
-  }
+  // ---- Bilder: fuer Bein und Testgelenk dieselben (knee.js) -------------------
+  const pict = (key) => window.KneeArt.pict(key);
 
   // ---- Texte ------------------------------------------------------------------
   // [Ton, Ueberschrift, Erklaerung]; Ton: go = jetzt etwas tun, hold = ruhig, fix = korrigieren, ok = gezaehlt
@@ -371,36 +329,77 @@
     }
   }
 
+  // ---- Zeitpunkte der Kalibrierungen ------------------------------------------------------
+  // Das Geraet speichert und meldet sie ab Firmware 2.2 (Merkmal CALTIME). Mit aelterer Firmware
+  // merkt sich die App, wann sie eine Kalibrierung abgeschlossen hat (pro Geraet, auf diesem Handy).
+  // Meldet das Geraet einen Zeitpunkt als unbekannt (0), gilt der auf dem Handy gemerkte.
+  const timesKey = () => 'knee.caltimes.' + (dev && dev.name ? dev.name : 'x');
+  function loadTimes() { try { return JSON.parse(localStorage.getItem(timesKey()) || '{}'); } catch (e) { return {}; } }
+  function saveTimes(t) { try { localStorage.setItem(timesKey(), JSON.stringify(t)); } catch (e) { /* egal */ } }
+  function calTimes() {
+    const t = loadTimes();
+    if (devTimes) ['sensor', 'joint', 'zero'].forEach((k) => { if (devTimes[k]) t[k] = devTimes[k]; });
+    return t;
+  }
+  function noteCalDone(c) {
+    if (devTimes) return;                                  // das Geraet fuehrt die Zeiten selbst (ab 2.2)
+    const t = loadTimes(), now = Date.now();
+    if (c.result === RS.UNDONE) { if (t.prev) { Object.assign(t, t.prev); delete t.prev; } saveTimes(t); return; }
+    if (c.result !== RS.OK && c.result !== RS.OK_PARTIAL) return;
+    t.prev = { joint: t.joint || 0, zero: t.zero || 0 };
+    if (c.resultMode === 1) t.sensor = now;
+    if (c.resultMode === 2) { t.joint = now; t.zero = now; }
+    if (c.resultMode === 3) t.zero = now;
+    saveTimes(t);
+  }
+  function whenText(ms) {
+    if (!ms) return '';
+    const d = new Date(ms), n = new Date(), hm = d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === n.toDateString()) return 'heute ' + hm;
+    const y = new Date(n); y.setDate(n.getDate() - 1);
+    if (d.toDateString() === y.toDateString()) return 'gestern ' + hm;
+    return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ', ' + hm;
+  }
+  function ageText(ms) { const m = Math.round((Date.now() - ms) / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; }
+
   // ---- Reiter "Kalibrieren" ---------------------------------------------------------
   function renderCalTab() {
     const ready = conn === 'connected' && calProtoOk();
-    const sens = sensorsDone(), joint = isCalibrated();
-    let state, next = null;
-    if (conn !== 'connected') state = 'Nicht verbunden.';
-    else if (!calProtoOk()) state = 'Die Firmware auf dem Gerät ist zu alt für diesen Assistenten. Bitte Firmware 2.1 aufspielen.';
-    else if (cal && cal.mode) { state = `Läuft gerade: ${TITLE[MODE_KIND[cal.mode]]}.`; next = MODE_KIND[cal.mode]; }
-    else if (!sens) { state = 'Als Nächstes: Sensoren einmessen. Einmalig, ohne Bein, etwa 3 Minuten. Danach: Anlegen.'; next = 'sensor'; }
-    else if (!joint) { state = 'Als Nächstes: Anlegen. Etwa 1 Minute, das Gerät führt dich.'; next = 'joint'; }
-    else state = 'Alles bereit. Nach jedem neuen Anlegen der Sensoren: «Anlegen».';
-    $('calState').textContent = state;
-    $('calNext').dataset.ok = (joint && sens && !(cal && cal.mode)) ? '1' : '0';
+    const sens = sensorsDone(), joint = isCalibrated(), running = !!(cal && cal.mode);
+    const t = calTimes();
+    let tone = 'off', state, sub = '', next = null;
+    if (conn !== 'connected') { state = 'Nicht verbunden'; sub = 'Zum Kalibrieren zuerst das Gerät verbinden.'; }
+    else if (!calProtoOk()) { tone = 'todo'; state = 'Firmware zu alt'; sub = 'Für den Assistenten Firmware 2.1 oder neuer aufspielen.'; }
+    else if (running) { tone = 'run'; state = `Läuft: ${TITLE[MODE_KIND[cal.mode]]}`; sub = 'Der Alarm ist so lange aus.'; next = MODE_KIND[cal.mode]; }
+    else if (!sens) { tone = 'todo'; state = 'Sensoren noch nicht eingemessen'; sub = 'Einmalig, auf dem Tisch, etwa 3 Minuten.'; next = 'sensor'; }
+    else if (!joint) { tone = 'todo'; state = 'Noch nicht angelegt'; sub = 'Etwa 1 Minute, die App führt dich.'; next = 'joint'; }
+    else { tone = 'ok'; state = 'Bereit zum Messen'; sub = [t.joint ? 'Angelegt ' + whenText(t.joint) : 'Angelegt', t.zero && t.zero !== t.joint ? 'Nullpunkt ' + whenText(t.zero) : ''].filter(Boolean).join(' · '); }
+    $('calStatus').dataset.tone = tone; $('calState').textContent = state; $('calStateSub').textContent = sub;
     const bn = $('btnCalNext');
     bn.hidden = !next || !ready;
-    if (next) bn.textContent = (cal && cal.mode) ? 'Anzeigen' : `${TITLE[next]} starten`;
+    if (next) bn.textContent = running ? 'Anzeigen' : `${TITLE[next]} starten`;
     bn.dataset.kind = next || '';
-    const st = (id, good, t1, t0) => { const e = $(id); e.dataset.ok = good ? '1' : '0'; e.textContent = good ? t1 : t0; };
+    // Hinweis, wann der Nullpunkt geprueft werden sollte
+    const ref = Math.max(t.joint || 0, t.zero || 0);
+    const due = ready && joint && !running && ref && (Date.now() - ref) > 60 * 60000;
+    $('calHint').hidden = !due;
+    if (due) $('calHintText').innerHTML = `<b>Seit ${esc(ageText(ref))} nicht mehr nachgestellt.</b> Zeigt das gestreckte Bein nicht mehr etwa 0°: Nullpunkt nachstellen. Nach dem Ab- und wieder Anlegen: «Anlegen».`;
+    const st = (id, mk, good, t1, t0) => { const e = $(id); e.dataset.ok = good ? '1' : '0'; e.textContent = good ? t1 : t0; $(mk).dataset.ok = good ? '1' : '0'; };
     if (status) {
-      st('stSensor', sens, 'erledigt', 'noch nicht gemacht');
-      st('stJoint', joint, 'angelegt', 'noch nicht angelegt');
-      st('stZero', joint, 'gesetzt', 'braucht zuerst «Anlegen»');
+      st('stSensor', 'mkSensor', sens, t.sensor ? 'Gespeichert ' + whenText(t.sensor) : 'Gespeichert', 'Noch nicht eingemessen');
+      st('stJoint', 'mkJoint', joint, t.joint ? 'Gespeichert ' + whenText(t.joint) : 'Gespeichert', 'Noch nicht angelegt');
+      st('stZero', 'mkZero', joint, t.zero ? 'Gespeichert ' + whenText(t.zero) : 'Gespeichert', 'Braucht zuerst «Anlegen»');
     }
-    document.querySelectorAll('[data-cal]').forEach((b) => { b.disabled = !ready || !!(cal && cal.mode) || (b.dataset.cal === 'zero' && !joint); });
-    document.querySelectorAll('[data-rig]').forEach((b) => b.setAttribute('aria-checked', b.dataset.rig === prefs.rig ? 'true' : 'false'));
+    document.querySelector('[data-cal="joint"]').textContent = joint ? 'Neu anlegen' : 'Anlegen';
+    document.querySelectorAll('[data-cal]').forEach((b) => { b.disabled = !ready || running || (b.dataset.cal === 'zero' && !joint); });
+    $('pRig').checked = !onLeg();
+    $('advSum').textContent = (onLeg() ? 'Am Bein' : 'Testgelenk') + (status && !sens ? ' · Sensoren fehlen' : ' · Sensoren');
+    if (status && !sens) $('calAdv').open = true;
     const u = $('undoBlock');
-    u.hidden = !(ready && cal && cal.undo && !cal.mode);
-    if (!u.hidden) $('undoText').textContent = 'Die letzte Änderung (Anlegen oder Nullpunkt) verwerfen und die vorherige Kalibrierung wieder verwenden.';
+    u.hidden = !(ready && cal && cal.undo && !running);
+    if (!u.hidden) $('undoText').textContent = 'Letzte Änderung verwerfen und die vorherige Kalibrierung wieder verwenden.';
   }
-  document.querySelectorAll('[data-rig]').forEach((b) => b.addEventListener('click', () => { prefs.rig = b.dataset.rig; savePrefs(); renderCalTab(); if (wz.kind && wz.phase === 'intro') wzIntro(); }));
+  $('pRig').addEventListener('change', (e) => { prefs.rig = e.target.checked ? 'rig' : 'leg'; savePrefs(); renderCalTab(); });
   $('btnCalNext').addEventListener('click', () => { const k = $('btnCalNext').dataset.kind; if (!k) return; if (cal && cal.mode) wzResume(cal); else openWizard(k); });
   document.querySelectorAll('[data-cal]').forEach((b) => b.addEventListener('click', () => openWizard(b.dataset.cal)));
   $('btnUndo').addEventListener('click', async () => { if (await ask('Letzte Änderung rückgängig machen?', 'Rückgängig', 'Abbrechen')) undoLast(); });
@@ -509,6 +508,7 @@
   // jedes CAL-Paket
   function onCal(c) {
     const prev = cal; cal = c;
+    if (prev && c.resultSeq !== prev.resultSeq && !c.mode) noteCalDone(c);
     if (prev && c.resultSeq !== prev.resultSeq && c.result === RS.UNDONE && !c.mode) {
       toast('Rückgängig gemacht. Die vorherige Einstellung gilt wieder.'); fb('ok');
       if (wz.kind && (wz.phase === 'result' || wz.phase === 'check')) closeWizard();
@@ -714,6 +714,9 @@
     F.forEach(([id, k, o, f]) => { $(id).value = edit[k]; $(o).textContent = f(edit[k]); });
     C.forEach(([id, k]) => { $(id).checked = !!edit[k]; });
     $('hZone').textContent = `Leichte Pulse ab ${fmt(edit.limit + edit.zone, 1)}°, starke Vibration ab ${fmt(edit.limit, 1)}°.`;
+    $('sumLimit').textContent = fmt(edit.limit, 1) + '°' + (edit.alarmEnabled ? '' : ' · aus');
+    $('sumApp').textContent = edit.approachOn ? `ab ${fmt(edit.limit + edit.zone, 1)}° · ${edit.approachStrength} %` : 'aus';
+    $('sumAl').textContent = edit.motorOn === false ? 'nur Handy' : `${edit.alarmStrength} %`;
     $('saveBar').hidden = !isDirty();
     const errs = P.validateSettings(edit); const el = $('setErr');
     el.hidden = errs.length === 0; el.innerHTML = errs.map((e) => `<li>${esc(e)}</li>`).join('');
@@ -762,31 +765,62 @@
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   $('btnLogCsv').addEventListener('click', () => download(`kneeangle-ueberstreckungen-${stamp()}.csv`, 'zeit;winkel_grad;grenze_grad;dauer_s;nur_vorwarnung;stumm\n' + logRows.map((r) => [r.timeValid ? new Date(r.time * 1000).toISOString() : 'betrieb+' + r.time + 's', r.extreme, r.limit, r.durS, r.predictedOnly ? 1 : 0, r.silenced ? 1 : 0].join(';')).join('\n')));
 
+  // Kniewinkel ueber die Zeit: 5 Punkte pro Sekunde, 15 Minuten
   const chartBuf = []; let lastChartT = 0;
+  const CH = { ok: '#2e8b57', approach: '#e8a20c', over: '#d0342c' };
+  let chartSpan = 300;
+  try { chartSpan = +(localStorage.getItem('knee.span') || 300); } catch (e) { /* Standard */ }
   function pushChart(l) {
     const now = performance.now();
-    if (now - lastChartT < 100) return;
-    lastChartT = now; chartBuf.push([now, l.angle, l.effLimit]);
-    while (chartBuf.length && now - chartBuf[0][0] > 60000) chartBuf.shift();
-    if (curView === 'log') drawChart();
+    if (now - lastChartT < 200) return;
+    lastChartT = now;
+    let st = null;
+    if (l.angle !== null && l.state !== P.STATE.CAL && l.state !== P.STATE.INVALID) st = l.state === P.STATE.OVER ? 'over' : (l.state === P.STATE.APPROACH ? 'approach' : 'ok');
+    chartBuf.push([now, st ? l.angle : null, l.effLimit, st, settings && settings.approachOn ? settings.zone : 0]);
+    while (chartBuf.length && now - chartBuf[0][0] > 900000) chartBuf.shift();
+    if (curView === 'log') drawChart($('chart'), chartSpan * 1000);
+    if (curView === 'live') drawChart($('spark'), 120000);
   }
-  function drawChart() {
-    const cv = $('chart'), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  function drawChart(cvArg, spanArg) {
+    const cv = cvArg || $('chart'), span = spanArg || chartSpan * 1000, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
     if (!w) return;
     if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    const vals = chartBuf.filter((p) => p[1] !== null);
+    const now = performance.now();
+    const pts = chartBuf.filter((p) => now - p[0] <= span), vals = pts.filter((p) => p[1] !== null);
     let lo = -10, hi = 30;
     vals.forEach((p) => { lo = Math.min(lo, p[1] - 5); hi = Math.max(hi, p[1] + 5); });
-    const now = performance.now(), X = (t) => w - (now - t) / 60000 * w, Y = (a) => h - 8 - (a - lo) / (hi - lo) * (h - 16);
-    g.font = '13px Barlow, sans-serif'; g.fillStyle = '#5b6b76'; g.strokeStyle = '#cfd8dc'; g.lineWidth = 1;
+    const bot = h - 18, X = (t) => w - (now - t) / span * w, Y = (a) => bot - 4 - (a - lo) / (hi - lo) * (bot - 10);
+    const last = pts.length ? pts[pts.length - 1] : null;
+    const lim = last ? last[2] : (settings ? settings.limit : -5), zone = last ? last[4] : (settings && settings.approachOn ? settings.zone : 10);
+    // Bereiche: unter der Grenze rot, Vorwarnung gelb
+    g.fillStyle = 'rgba(208,52,44,.09)'; g.fillRect(0, Y(lim), w, bot - Y(lim));
+    if (zone > 0) { g.fillStyle = 'rgba(232,162,12,.12)'; g.fillRect(0, Y(lim + zone), w, Y(lim) - Y(lim + zone)); }
+    g.font = '12px Barlow, sans-serif'; g.fillStyle = '#5b6b76'; g.strokeStyle = '#e4eaed'; g.lineWidth = 1;
     const stepDeg = (hi - lo) > 80 ? 30 : 10;
     for (let a = Math.ceil(lo / stepDeg) * stepDeg; a <= hi; a += stepDeg) { g.beginPath(); g.moveTo(0, Y(a)); g.lineTo(w, Y(a)); g.stroke(); g.fillText(a + '°', 4, Y(a) - 3); }
-    if (vals.length) { const lim = vals[vals.length - 1][2]; g.strokeStyle = '#d0342c'; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(0, Y(lim)); g.lineTo(w, Y(lim)); g.stroke(); g.setLineDash([]); }
-    g.strokeStyle = '#0e6e73'; g.lineWidth = 2.5; g.beginPath();
-    let pen = false; chartBuf.forEach((p) => { if (p[1] === null) { pen = false; return; } if (!pen) { g.moveTo(X(p[0]), Y(p[1])); pen = true; } else g.lineTo(X(p[0]), Y(p[1])); });
-    g.stroke();
+    g.strokeStyle = '#d0342c'; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(0, Y(lim)); g.lineTo(w, Y(lim)); g.stroke(); g.setLineDash([]);
+    // Zeitachse
+    const mins = span / 60000;
+    g.fillStyle = '#5b6b76'; g.textAlign = 'left'; g.fillText(mins >= 1 ? `vor ${mins} min` : `vor ${span / 1000} s`, 4, h - 3);
+    g.textAlign = 'right'; g.fillText('jetzt', w - 2, h - 3); g.textAlign = 'left';
+    // Linie, je Abschnitt in der Farbe des Zustands
+    g.lineWidth = 2.6; g.lineJoin = 'round'; g.lineCap = 'round';
+    let prev = null;
+    for (const p of pts) {
+      if (p[1] === null) { prev = null; continue; }
+      if (prev) { g.strokeStyle = CH[p[3]] || CH.ok; g.beginPath(); g.moveTo(X(prev[0]), Y(prev[1])); g.lineTo(X(p[0]), Y(p[1])); g.stroke(); }
+      prev = p;
+    }
+    if (vals.length) { const p = vals[vals.length - 1]; g.fillStyle = CH[p[3]] || CH.ok; g.beginPath(); g.arc(X(p[0]), Y(p[1]), 4.5, 0, 6.3); g.fill(); }
   }
+  function renderSpan() {
+    document.querySelectorAll('#spanChips button').forEach((b) => b.setAttribute('aria-checked', +b.dataset.span === chartSpan ? 'true' : 'false'));
+    $('chartTitle').textContent = `Kniewinkel, letzte ${chartSpan >= 60 ? chartSpan / 60 + ' min' : chartSpan + ' s'}`;
+    if (curView === 'log') drawChart($('chart'), chartSpan * 1000);
+  }
+  document.querySelectorAll('#spanChips button').forEach((b) => b.addEventListener('click', () => { chartSpan = +b.dataset.span; try { localStorage.setItem('knee.span', chartSpan); } catch (e) { /* egal */ } renderSpan(); }));
+  renderSpan();
   let rec = null;
   function recordRow(l) { if (rec && rec.rows.length < 180000) rec.rows.push([((performance.now() - rec.t0) / 1000).toFixed(3), l.angle === null ? '' : l.angle, l.state, l.effLimit]); }
   $('btnRec').addEventListener('click', () => {
@@ -817,7 +851,9 @@
     $('diagInfo').innerHTML = kv.map((x) => `<dt>${esc(x[0])}</dt><dd>${esc(x[1])}</dd>`).join('');
   }
   $('pPhoneSound').checked = prefs.phoneSound; $('pPhoneVib').checked = prefs.phoneVib; $('pWake').checked = prefs.wake;
-  const phonePrefChanged = () => { savePrefs(); if (prefs.phoneSound) ensureAudio(); if (!prefs.phoneSound && !prefs.phoneVib) stopPhoneAlarm(); };
+  const renderPhoneSum = () => { $('sumPhone').textContent = [prefs.phoneSound ? 'Ton' : '', prefs.phoneVib ? 'Vibration' : ''].filter(Boolean).join(' · ') || 'aus'; };
+  renderPhoneSum();
+  const phonePrefChanged = () => { savePrefs(); renderPhoneSum(); if (prefs.phoneSound) ensureAudio(); if (!prefs.phoneSound && !prefs.phoneVib) stopPhoneAlarm(); };
   $('pPhoneSound').addEventListener('change', (e) => { prefs.phoneSound = e.target.checked; phonePrefChanged(); });
   $('pPhoneVib').addEventListener('change', (e) => { prefs.phoneVib = e.target.checked; phonePrefChanged(); });
   let wakeLock = null;
@@ -830,7 +866,8 @@
   //  Start
   // ---------------------------------------------------------------------------
   if (!window.KneeDevice.supported) { $('noBle').hidden = false; $('btnStart').disabled = true; }
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (window.KNEE_PREVIEW) { $('noBle').className = 'note'; $('noBle').textContent = 'Vorschau ohne Bluetooth: Tippe auf «Ohne Gerät ansehen».'; }
+  if (!window.KNEE_PREVIEW && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   renderConn(); renderPair(); applyWake();
   // Zum Testen der Oberflaeche:  index.html?demo  bzw.  ?demo&view=alarm
   const qs = new URLSearchParams(location.search);
