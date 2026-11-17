@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '3.0.1';
+  const APP_VERSION = '3.0.2';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -277,8 +277,8 @@
         default: return ['go', leg ? 'Bein ganz strecken' : 'Gelenk ganz strecken', leg ? 'Ferse auf einen zweiten Stuhl legen, Kniekehle frei hängen lassen, Muskeln locker. Wenn das Bein ganz gestreckt ist: unten tippen.' : 'Das Gelenk ganz gerade (0°) und aufrecht halten, Gelenkachse waagrecht (nicht flach hinlegen). Dann unten tippen.'];
       }
       case JS.FLEX: switch (hint) {
-        case HI.HOLD_STILL: return ['hold', 'So halten', 'Nicht bewegen, bis der Ring voll ist.'];
-        case HI.WAIT_REST: return ['fix', 'Ruhiger halten', 'Gebeugt bleiben, nicht bewegen.'];
+        case HI.HOLD_STILL: return ['hold', 'So halten', 'Gebeugt bleiben, bis der Ring voll ist. Leichtes Wackeln oder Nachpendeln stört nicht.'];
+        case HI.WAIT_REST: return ['fix', 'Langsamer', 'Gebeugt bleiben und nicht mehr schnell bewegen.'];
         default: return ['go', 'Jetzt beugen und halten', leg ? 'Fuss zurück auf den Boden stellen, Knie etwa rechtwinklig. Dann ruhig halten.' : 'Das Gelenk etwa 90° beugen und ruhig halten, Gelenkachse weiterhin waagrecht.'];
       }
       default: return ['hold', '', ''];
@@ -393,8 +393,6 @@
     document.querySelector('[data-cal="joint"]').textContent = joint ? 'Neu anlegen' : 'Anlegen';
     document.querySelectorAll('[data-cal]').forEach((b) => { b.disabled = !ready || running || (b.dataset.cal === 'zero' && !joint); });
     $('pRig').checked = !onLeg();
-    $('advSum').textContent = (onLeg() ? 'Am Bein' : 'Testgelenk') + (status && !sens ? ' · Sensoren fehlen' : ' · Sensoren');
-    if (status && !sens) $('calAdv').open = true;
     const u = $('undoBlock');
     u.hidden = !(ready && cal && cal.undo && !running);
     if (!u.hidden) $('undoText').textContent = 'Letzte Änderung verwerfen und die vorherige Kalibrierung wieder verwenden.';
@@ -478,7 +476,7 @@
         'Die Anordnung nacheinander in 14 verschiedene Lagen legen: jede Seite einmal nach unten, dazu auf die Kanten.', 'Jede Lage etwa 3 Sekunden ruhig liegen lassen. Das Gerät vibriert kurz, wenn die Lage gezählt ist.', 'Kein Zeitdruck. Etwa 3 Minuten.'];
       go = 'Starten';
     }
-    $('wzBody').innerHTML = `<div class="wpict">${pict(pk)}</div><ol class="todo">${todo.map((t) => `<li>${t}</li>`).join('')}</ol>${extra}`;
+    $('wzBody').innerHTML = `<div class="wpict">${pict(pk)}</div><ol class="todo">${todo.map((t) => `<li><span>${t}</span></li>`).join('')}</ol>${extra}`;
     $('wzFoot').innerHTML = `<button class="btn" id="wzGo">${esc(go)}</button>`;
     $('wzGo').addEventListener('click', () => wzStart(null));
     bindRef((v) => wzStart(v));
@@ -784,27 +782,39 @@
   function drawChart(cvArg, spanArg) {
     const cv = cvArg || $('chart'), span = spanArg || chartSpan * 1000, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
     if (!w) return;
-    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
     const now = performance.now();
     const pts = chartBuf.filter((p) => now - p[0] <= span), vals = pts.filter((p) => p[1] !== null);
     let lo = -10, hi = 30;
     vals.forEach((p) => { lo = Math.min(lo, p[1] - 5); hi = Math.max(hi, p[1] + 5); });
-    const bot = h - 18, X = (t) => w - (now - t) / span * w, Y = (a) => bot - 4 - (a - lo) / (hi - lo) * (bot - 10);
+    // Zeichenfläche rechts der Skala und über der Zeitachse: die Linie läuft nie durch die Beschriftung
+    g.font = '12px Barlow, sans-serif';
+    const L = 38, R = w - 7, T = 7, B = h - 20;
+    const X = (t) => R - (now - t) / span * (R - L), Y = (a) => B - (a - lo) / (hi - lo) * (B - T);
     const last = pts.length ? pts[pts.length - 1] : null;
     const lim = last ? last[2] : (settings ? settings.limit : -5), zone = last ? last[4] : (settings && settings.approachOn ? settings.zone : 10);
     // Bereiche: unter der Grenze rot, Vorwarnung gelb
-    g.fillStyle = 'rgba(208,52,44,.09)'; g.fillRect(0, Y(lim), w, bot - Y(lim));
-    if (zone > 0) { g.fillStyle = 'rgba(232,162,12,.12)'; g.fillRect(0, Y(lim + zone), w, Y(lim) - Y(lim + zone)); }
-    g.font = '12px Barlow, sans-serif'; g.fillStyle = '#5b6b76'; g.strokeStyle = '#e4eaed'; g.lineWidth = 1;
-    const stepDeg = (hi - lo) > 80 ? 30 : 10;
-    for (let a = Math.ceil(lo / stepDeg) * stepDeg; a <= hi; a += stepDeg) { g.beginPath(); g.moveTo(0, Y(a)); g.lineTo(w, Y(a)); g.stroke(); g.fillText(a + '°', 4, Y(a) - 3); }
-    g.strokeStyle = '#d0342c'; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(0, Y(lim)); g.lineTo(w, Y(lim)); g.stroke(); g.setLineDash([]);
-    // Zeitachse
+    const yl = Math.min(B, Math.max(T, Y(lim)));
+    g.fillStyle = 'rgba(208,52,44,.09)'; g.fillRect(L, yl, R - L, B - yl);
+    if (zone > 0) { const yz = Math.min(B, Math.max(T, Y(lim + zone))); g.fillStyle = 'rgba(232,162,12,.12)'; g.fillRect(L, yz, R - L, yl - yz); }
+    // Skala links, Gitter nur in der Zeichenfläche
+    g.fillStyle = '#5b6b76'; g.strokeStyle = '#e4eaed'; g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
+    // Schrittweite so, dass die Skalenwerte mindestens 22 px auseinander liegen
+    const stepDeg = [10, 15, 30, 45, 60, 90].find((d) => d / (hi - lo) * (B - T) >= 22) || 90;
+    for (let a = Math.ceil(lo / stepDeg) * stepDeg; a <= hi; a += stepDeg) {
+      const y = Math.round(Y(a)) + 0.5;
+      g.beginPath(); g.moveTo(L, y); g.lineTo(R, y); g.stroke();
+      g.fillText(a + '°', L - 7, Math.min(B - 4, Math.max(T + 4, y)));
+    }
+    g.strokeStyle = '#d0342c'; g.setLineDash([6, 4]); g.beginPath(); g.moveTo(L, Y(lim)); g.lineTo(R, Y(lim)); g.stroke(); g.setLineDash([]);
+    // Zeitachse unter der Zeichenfläche
     const mins = span / 60000;
-    g.fillStyle = '#5b6b76'; g.textAlign = 'left'; g.fillText(mins >= 1 ? `vor ${mins} min` : `vor ${span / 1000} s`, 4, h - 3);
-    g.textAlign = 'right'; g.fillText('jetzt', w - 2, h - 3); g.textAlign = 'left';
-    // Linie, je Abschnitt in der Farbe des Zustands
+    g.textBaseline = 'alphabetic'; g.textAlign = 'left'; g.fillStyle = '#5b6b76';
+    g.fillText(mins >= 1 ? `vor ${mins} min` : `vor ${span / 1000} s`, L, h - 4);
+    g.textAlign = 'right'; g.fillText('jetzt', R, h - 4); g.textAlign = 'left';
+    // Linie, je Abschnitt in der Farbe des Zustands; abgeschnitten an der Zeichenfläche
+    g.save(); g.beginPath(); g.rect(L, T - 6, R - L + 7, B - T + 12); g.clip();
     g.lineWidth = 2.6; g.lineJoin = 'round'; g.lineCap = 'round';
     let prev = null;
     for (const p of pts) {
@@ -813,6 +823,7 @@
       prev = p;
     }
     if (vals.length) { const p = vals[vals.length - 1]; g.fillStyle = CH[p[3]] || CH.ok; g.beginPath(); g.arc(X(p[0]), Y(p[1]), 4.5, 0, 6.3); g.fill(); }
+    g.restore();
   }
   function renderSpan() {
     document.querySelectorAll('#spanChips button').forEach((b) => b.setAttribute('aria-checked', +b.dataset.span === chartSpan ? 'true' : 'false'));

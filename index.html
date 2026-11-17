@@ -24,20 +24,14 @@
 <main>
   <!-- Start -->
   <section class="view welcome" id="view-welcome">
-    <div class="brand"><svg class="logo big" viewBox="0 0 48 48" aria-hidden="true"><use href="#logoMark"/></svg><span>KneeAngle</span></div>
     <div class="hero">
-      <svg class="gauge" id="heroKnee" viewBox="0 0 320 232" aria-hidden="true"></svg>
+      <svg class="gauge" id="heroKnee" viewBox="0 0 320 232" role="img" aria-label="KneeAngle"></svg>
     </div>
-    <h1>Spürt, bevor dein Knie überstreckt.</h1>
-    <p class="lead">Zwei Sensoren messen den Kniewinkel. Kommst du der Grenze nahe, vibriert das Gerät – auch ohne Handy.</p>
-    <ol class="intro">
-      <li><b>Gerät einschalten</b><span>Schiebeschalter am Akku.</span></li>
-      <li><b>Verbinden</b><span>Beim ersten Mal innert 60 Sekunden: Dann wird dieses Handy gekoppelt.</span></li>
-      <li><b>Anlegen</b><span>Die App führt dich in etwa einer Minute durch die Kalibrierung.</span></li>
-    </ol>
-    <p class="note err" id="noBle" hidden>Dieser Browser kann kein Bluetooth. Bitte Chrome auf einem Android-Handy verwenden.</p>
-    <button class="btn big" id="btnStart">Gerät verbinden</button>
-    <button class="link" id="btnDemo">Ohne Gerät ansehen</button>
+    <div class="startbtns">
+      <p class="note err" id="noBle" hidden>Dieser Browser kann kein Bluetooth. Bitte Chrome auf einem Android-Handy verwenden.</p>
+      <button class="btn big" id="btnStart">Gerät verbinden</button>
+      <button class="btn big sec" id="btnDemo">Ohne Gerät ansehen</button>
+    </div>
   </section>
 
   <!-- Messen -->
@@ -85,19 +79,14 @@
         <button class="btn small sec" data-cal="zero">Nachstellen</button>
         <p class="desc">Wenn das gestreckte Bein nicht mehr etwa 0° zeigt, oder nach Verrutschen. 10 Sekunden.</p>
       </div>
-    </div>
-    <div class="undo" id="undoBlock" hidden><span id="undoText"></span><button class="link" id="btnUndo">Rückgängig</button></div>
-    <details class="card expander" id="calAdv">
-      <summary><span class="grow">Erweitert</span><small id="advSum">Testgelenk · Sensoren</small></summary>
-      <div class="field"><label>Am Testgelenk messen <span class="switch"><input type="checkbox" id="pRig"><span></span></span></label>
-        <div class="help">Anleitungen und Bilder für das Holzgelenk. Die Messung ist dieselbe.</div></div>
       <div class="proc">
         <span class="pmark" id="mkSensor" data-ok="0" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg></span>
         <div class="grow"><h3>Sensoren einmessen</h3><div class="st" id="stSensor">–</div></div>
         <button class="btn small sec" data-cal="sensor">Einmessen</button>
         <p class="desc">Einmalig auf dem Tisch, ohne Bein – nur nach einem Sensortausch wiederholen. Etwa 3 Minuten.</p>
       </div>
-    </details>
+    </div>
+    <div class="undo" id="undoBlock" hidden><span id="undoText"></span><button class="link" id="btnUndo">Rückgängig</button></div>
     <p class="muted small foot">Abbrechen ist jederzeit möglich. Dann gilt die bisherige Kalibrierung unverändert weiter.</p>
   </section>
 
@@ -119,6 +108,12 @@
         <div class="help">Ausgeschaltet vibriert das Gerät nie. Die Messung läuft weiter.</div></div>
     </details>
     <details class="card sect">
+      <summary><span class="grow">Handy</span><output id="sumPhone"></output></summary>
+      <div class="field"><label>Ton bei Überstreckung <span class="switch"><input type="checkbox" id="pPhoneSound"><span></span></span></label></div>
+      <div class="field"><label>Vibration bei Überstreckung <span class="switch"><input type="checkbox" id="pPhoneVib"><span></span></span></label>
+        <div class="help">Nur solange die App geöffnet ist. Gilt sofort, ohne Speichern.</div></div>
+    </details>
+    <details class="card sect">
       <summary><span class="grow">Vorwarnung</span><output id="sumApp"></output></summary>
       <div class="field"><label>Leichte Pulse vor der Grenze <span class="switch"><input type="checkbox" id="sAppOn"><span></span></span></label></div>
       <div class="field"><label for="sZone">Beginn <output id="oZone"></output></label>
@@ -137,12 +132,6 @@
       <div class="field"><label for="sAlStr">Stärke <output id="oAlStr"></output></label>
         <div class="stepper"><button data-step="sAlStr" data-d="-5" aria-label="schwächer">−</button><input type="range" id="sAlStr" min="30" max="100" step="5"><button data-step="sAlStr" data-d="5" aria-label="stärker">+</button></div></div>
       <button class="btn sec wide" id="btnTestAl">Alarm testen</button>
-    </details>
-    <details class="card sect">
-      <summary><span class="grow">Handy</span><output id="sumPhone"></output></summary>
-      <div class="field"><label>Ton bei Überstreckung <span class="switch"><input type="checkbox" id="pPhoneSound"><span></span></span></label></div>
-      <div class="field"><label>Vibration bei Überstreckung <span class="switch"><input type="checkbox" id="pPhoneVib"><span></span></span></label>
-        <div class="help">Nur solange die App geöffnet ist. Gilt sofort, ohne Speichern.</div></div>
     </details>
     <details class="card sect">
       <summary><span class="grow">Feineinstellungen</span></summary>
@@ -205,6 +194,8 @@
       <div class="row"><button class="btn small" id="btnPair" hidden>Dieses Handy koppeln</button><button class="btn sec small" id="btnForget" hidden>Kopplung löschen</button></div>
     </div>
     <div class="card">
+      <div class="field"><label>Am Testgelenk kalibrieren <span class="switch"><input type="checkbox" id="pRig"><span></span></span></label>
+        <div class="help">Anleitungen für das Holzgelenk statt für das Bein. Die Messung ist dieselbe.</div></div>
       <div class="field"><label>Bildschirm eingeschaltet lassen <span class="switch"><input type="checkbox" id="pWake"><span></span></span></label>
         <div class="help">Praktisch beim Training mit dem Handy in Sichtweite.</div></div>
     </div>

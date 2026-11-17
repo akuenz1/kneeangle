@@ -104,7 +104,7 @@ main { max-width: 640px; margin: 0 auto; }
 .view { padding: 12px 14px; }
 
 /* ---------- Anzeige (Strich und Kreis) ---------- */
-.gauge { width: 100%; max-width: 480px; display: block; margin: 4px auto 0; overflow: visible; }
+.gauge { width: 100%; max-width: 480px; aspect-ratio: 288 / 192; display: block; margin: 4px auto 0; overflow: visible; }
 .g-scale { fill: none; stroke: #e4eaed; stroke-width: 10; stroke-linecap: round; }
 .g-app { fill: none; stroke: var(--bernstein); stroke-width: 10; }
 .g-over { fill: none; stroke: var(--rot); stroke-width: 10; stroke-linecap: round; }
@@ -119,9 +119,9 @@ main { max-width: 640px; margin: 0 auto; }
 .g-lbl { font-family: "Barlow", sans-serif; font-size: 13px; fill: var(--grau); }
 
 /* ---------- Start ---------- */
-.welcome { padding: 18px 18px 30px; }
-.brand { display: flex; align-items: center; gap: 12px; font-size: 22px; font-weight: 600; }
-.hero { margin: 18px -4px 18px; border-radius: 24px; padding: 18px 6px 6px; background: radial-gradient(120% 90% at 30% 20%, var(--petrol-glanz), var(--petrol) 55%, var(--petrol-tief)); overflow: hidden; }
+.welcome { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; padding: 22px 18px calc(26px + env(safe-area-inset-bottom)); }
+.hero { margin: auto 0; border-radius: 28px; padding: 26px 10px 18px; background: radial-gradient(120% 90% at 30% 20%, var(--petrol-glanz), var(--petrol) 55%, var(--petrol-tief)); overflow: hidden; }
+.hero .gauge { max-width: 420px; }
 .hero .g-scale { stroke: rgba(255, 255, 255, .18); }
 .hero .g-bone { stroke: #fff; }
 .hero .g-shank { stroke: #9ee6bd; }
@@ -131,24 +131,19 @@ main { max-width: 640px; margin: 0 auto; }
 .hero .g-lbl { fill: rgba(255, 255, 255, .8); }
 .hero .g-over, .hero .g-limit { stroke: #ff8a80; }
 .hero .g-app { stroke: #ffc94d; }
-.welcome h1 { font-size: 30px; letter-spacing: -.4px; line-height: 1.15; margin-bottom: 8px; }
-.welcome .lead { font-size: 18px; color: var(--grau); margin-bottom: 18px; }
-ol.intro { list-style: none; margin: 0 0 20px; padding: 0; counter-reset: s; display: flex; flex-direction: column; gap: 12px; }
-ol.intro li { counter-increment: s; display: grid; grid-template-columns: 34px 1fr; column-gap: 12px; }
-ol.intro li::before { content: counter(s); grid-row: 1 / 3; width: 32px; height: 32px; border-radius: 50%; background: var(--petrol-hell); color: var(--petrol-tief); font-weight: 600; display: grid; place-items: center; }
-ol.intro b { font-weight: 600; }
-ol.intro span { color: var(--grau); font-size: 15.5px; }
-.welcome .link { display: block; margin: 6px auto 0; }
+.startbtns { display: flex; flex-direction: column; gap: 12px; padding-top: 22px; }
+.startbtns .note { margin: 0; }
 
 /* ---------- Messen ---------- */
-.herocard { padding: 10px 8px 18px; background: var(--tint); transition: background-color .2s; }
+.herocard { padding: 14px 8px 14px; background: var(--tint); transition: background-color .2s; }
 body[data-state="approach"] { --tint: #fff3d6; --akzent: var(--bernstein-text); }
 body[data-state="over"] { --tint: #fce4e2; --akzent: var(--rot); }
 body[data-state="invalid"], body[data-state="off"] { --tint: #fff; --akzent: var(--grau); }
 .readout { text-align: center; margin-top: -2px; }
-.angle { font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: clamp(84px, 27vw, 124px); line-height: .92; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.herocard .gauge { width: auto; height: clamp(140px, 22vh, 210px); max-width: 100%; margin: 0 auto; }
+.angle { font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: clamp(64px, min(20vw, 10.5vh), 112px); line-height: .92; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
 .angle sup { font-size: .42em; vertical-align: top; position: relative; top: .14em; margin-left: 2px; }
-.stateline { font-size: 22px; font-weight: 600; color: var(--akzent); min-height: 30px; margin-top: 4px; }
+.stateline { font-size: 21px; font-weight: 600; color: var(--akzent); min-height: 28px; margin-top: 2px; }
 .subline { font-size: 15px; color: var(--grau); min-height: 21px; }
 .silbar { margin: 0 0 12px; padding: 10px 10px 10px 14px; border-radius: 16px; background: var(--schiefer); color: #fff; display: flex; align-items: center; gap: 10px; }
 .silbar svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
@@ -160,7 +155,7 @@ body[data-state="invalid"], body[data-state="off"] { --tint: #fff; --akzent: var
 .facts div:first-child { border-left: 0; }
 .facts b { display: block; font-family: "Barlow Condensed", sans-serif; font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .facts span { font-size: 13.5px; color: var(--grau); }
-.spark canvas { width: 100%; height: 110px; display: block; }
+.spark canvas { width: 100%; height: clamp(84px, 12vh, 120px); display: block; }
 
 /* ---------- Kalibrieren ---------- */
 .status { display: flex; gap: 14px; align-items: center; }
@@ -336,7 +331,7 @@ ol.todo li::before { content: counter(s); width: 28px; height: 28px; border-radi
 .chip[data-ok="1"] { background: var(--moos-hell); color: #1d6b40; }
 
 /* Bilder im Assistenten (Bein und Testgelenk gleich) */
-.pict { display: block; width: 100%; max-width: 380px; margin: 0 auto; overflow: visible; }
+.pict { display: block; width: 100%; max-width: 380px; margin: 0 auto; overflow: hidden; }
 .p-thigh { fill: none; stroke: var(--schiefer); stroke-width: 15; stroke-linecap: round; }
 .p-shank { fill: none; stroke: var(--petrol); stroke-width: 15; stroke-linecap: round; }
 .p-joint { fill: var(--weiss); stroke: var(--schiefer); stroke-width: 5; }
@@ -355,9 +350,9 @@ ol.todo li::before { content: counter(s); width: 28px; height: 28px; border-radi
 .p-spin-bg { fill: none; stroke: var(--linie); stroke-width: 10; }
 .p-spin { fill: none; stroke: var(--petrol); stroke-width: 10; stroke-linecap: round; stroke-dasharray: 70 207; transform-box: view-box; transform-origin: 160px 92px; animation: rot 1.1s linear infinite; }
 .p-anim { transform-box: view-box; }
-.p-flex { transform-origin: 150px 84px; animation: pflex 3.4s ease-in-out infinite; }
-.p-flexs { transform-origin: 150px 84px; animation: pflexs 1.8s ease-in-out infinite; }
-.p-rock { transform-origin: 150px 84px; animation: prock 3s ease-in-out infinite; }
+.p-flex { transform-origin: 150px 62px; animation: pflex 3.4s ease-in-out infinite; }
+.p-flexs { transform-origin: 150px 62px; animation: pflexs 1.8s ease-in-out infinite; }
+.p-rock { transform-origin: 150px 62px; animation: prock 3s ease-in-out infinite; }
 .p-pose { transform-origin: 160px 89px; animation: pose 8s ease-in-out infinite; }
 @keyframes rot { to { transform: rotate(360deg); } }
 @keyframes pflex { 0%, 12% { transform: rotate(0deg); } 50%, 62% { transform: rotate(-88deg); } 100% { transform: rotate(0deg); } }
