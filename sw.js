@@ -1,6 +1,6 @@
 // KneeAngle - Service Worker: App-Dateien zwischenspeichern, damit die App ohne Internet startet.
 // Bei einer neuen App-Version CACHE hochzaehlen.
-const CACHE = 'kneeangle-v3.0.3d';   // neuer Name, damit Handys mit der ersten 3.0.3 die korrigierten Dateien laden
+const CACHE = 'kneeangle-v3.0.3e';   // neuer Name, damit Handys mit der ersten 3.0.3 die korrigierten Dateien laden
 const FILES = ['./', 'index.html', 'style.css', 'protocol.js', 'device.js', 'knee.js', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png',
   'fonts/barlow-latin-400-normal.woff2', 'fonts/barlow-latin-600-normal.woff2', 'fonts/barlow-condensed-latin-600-normal.woff2'];

@@ -147,6 +147,13 @@ body[data-state="over"] { --tint: #fce4e2; --akzent: var(--rot); }
 body[data-state="invalid"], body[data-state="off"] { --tint: #fff; --akzent: var(--grau); }
 .readout { text-align: center; margin-top: -2px; }
 .herocard .gauge { width: auto; height: clamp(110px, 17vh, 200px); max-width: 100%; margin: 0 auto; }
+/* Messen fuellt die Hoehe zwischen Kopfzeile und Reiterleiste (--live-h aus app.js): die Anzeige nimmt den Rest */
+body.fit-live { padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 1px); min-height: 0; }
+#view-live { display: flex; flex-direction: column; box-sizing: border-box; min-height: var(--live-h, auto); }
+#view-live > * { flex: none; }
+#view-live > .card:last-child { margin-bottom: 0; }
+#view-live .herocard { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+#view-live .herocard .gauge { flex: 1 1 0; width: 100%; height: auto; min-height: 110px; max-height: 320px; aspect-ratio: auto; }
 .angle { font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: clamp(60px, min(19vw, 9.8vh), 112px); line-height: .92; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
 .angle sup { font-size: .42em; vertical-align: top; position: relative; top: .14em; margin-left: 2px; }
 .stateline { font-size: 21px; font-weight: 600; color: var(--akzent); min-height: 28px; margin-top: 2px; }

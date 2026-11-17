@@ -29,10 +29,19 @@
     document.querySelectorAll('#tabs button').forEach((b) => { if (b.dataset.tab === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     const inApp = v !== 'welcome';
     $('tabs').hidden = !inApp; $('top').hidden = !inApp;
+    document.body.classList.toggle('fit-live', v === 'live');
+    if (v === 'live') fitLive();
     if (v === 'log') drawChart($('chart'), chartSpan * 1000);
     if (v === 'live') drawChart($('spark'), 120000);
     window.scrollTo(0, 0);
   }
+  // "Messen" fuellt genau den Platz zwischen Kopfzeile und Reiterleiste: die Anzeige waechst oder schrumpft,
+  // damit unten derselbe Abstand bleibt wie oben - auf jedem Handy, unabhaengig von der Bildschirmhoehe
+  function fitLive() {
+    const h = window.innerHeight - $('top').offsetHeight - $('tabs').offsetHeight;
+    if (h > 0) document.documentElement.style.setProperty('--live-h', h + 'px');
+  }
+  window.addEventListener('resize', () => { if (curView === 'live') { fitLive(); drawChart($('spark'), 120000); } });
   document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
 
   // ---------------------------------------------------------------------------
