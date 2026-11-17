@@ -290,3 +290,11 @@ ol.todo { padding-left: 24px; margin: 12px 0 14px; font-size: 18px; }
 ol.todo li { margin-bottom: 10px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Rueckfrage */
+.dlg { position: fixed; inset: 0; z-index: 40; background: rgba(28, 38, 44, .45); display: flex; align-items: flex-end; justify-content: center; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.dlg[hidden] { display: none; }
+.dlgbox { background: var(--weiss); border-radius: 16px; padding: 18px 16px 14px; width: 100%; max-width: 460px; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+.dlgbox p { margin: 0 0 16px; font-size: 18px; line-height: 1.4; }
+.dlgbox .row { display: flex; gap: 10px; }
+.dlgbox .btn { flex: 1; }

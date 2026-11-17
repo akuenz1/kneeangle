@@ -2,7 +2,7 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '2.3.0';
+  const APP_VERSION = '2.3.1';
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -280,6 +280,8 @@
   function say(mode, step, hint) {
     const leg = onLeg();
     if (hint === HI.COMPUTING) return ['hold', 'Wird berechnet …', leg ? 'Bein locker lassen. Einen Moment.' : 'Einen Moment.'];
+    if (hint === HI.SENSOR) return ['fix', 'Sensor antwortet nicht', 'Kabel und Stecker zum unteren Sensor prüfen. Das Gerät versucht es von selbst weiter.'];
+    if (hint === HI.SETTLE) return ['hold', 'Messung stellt sich ein …', leg ? 'Ruhig bleiben, Kniescheibe zeigt nach oben. Gleich geht es weiter.' : 'Ruhig halten. Die Gelenkachse muss waagrecht liegen – das Testgelenk nicht flach auf den Tisch legen.'];
     if (mode === 1) switch (hint) {
       case HI.PLACE: return ['go', 'Nächste Lage', 'Auf eine andere Seite oder Kante legen und loslassen.'];
       case HI.HOLD_STILL: return ['hold', 'Liegen lassen …', 'Nicht berühren, bis der Ring voll ist.'];
@@ -314,12 +316,12 @@
         case HI.HOLD_STILL: return ['hold', 'Nicht bewegen', 'Das Gerät misst die gestreckte Haltung.'];
         case HI.WAIT_REST: return ['fix', 'Ganz ruhig halten', 'Gestreckt bleiben, nicht bewegen.'];
         case HI.AXIS_VERTICAL: return ['fix', 'Anders halten', leg ? 'Bein nicht zur Seite drehen: Kniescheibe zeigt nach oben.' : 'So drehen, dass die Gelenkachse waagrecht liegt.'];
-        default: return ['go', leg ? 'Bein ganz strecken' : 'Gelenk ganz strecken', leg ? 'Ferse auf einen zweiten Stuhl legen, Kniekehle frei hängen lassen, Muskeln locker. Wenn das Bein ganz gestreckt ist: unten tippen.' : 'Das Gelenk ganz gerade (0°) hinlegen. Dann unten tippen.'];
+        default: return ['go', leg ? 'Bein ganz strecken' : 'Gelenk ganz strecken', leg ? 'Ferse auf einen zweiten Stuhl legen, Kniekehle frei hängen lassen, Muskeln locker. Wenn das Bein ganz gestreckt ist: unten tippen.' : 'Das Gelenk ganz gerade (0°) und aufrecht halten, Gelenkachse waagrecht (nicht flach hinlegen). Dann unten tippen.'];
       }
       case JS.FLEX: switch (hint) {
         case HI.HOLD_STILL: return ['hold', 'So halten', 'Nicht bewegen, bis der Ring voll ist.'];
         case HI.WAIT_REST: return ['fix', 'Ruhiger halten', 'Gebeugt bleiben, nicht bewegen.'];
-        default: return ['go', 'Jetzt beugen und halten', leg ? 'Fuss zurück auf den Boden stellen, Knie etwa rechtwinklig. Dann ruhig halten.' : 'Das Gelenk etwa 90° beugen und ruhig halten.'];
+        default: return ['go', 'Jetzt beugen und halten', leg ? 'Fuss zurück auf den Boden stellen, Knie etwa rechtwinklig. Dann ruhig halten.' : 'Das Gelenk etwa 90° beugen und ruhig halten, Gelenkachse weiterhin waagrecht.'];
       }
       default: return ['hold', '', ''];
     }
@@ -401,7 +403,17 @@
   document.querySelectorAll('[data-rig]').forEach((b) => b.addEventListener('click', () => { prefs.rig = b.dataset.rig; savePrefs(); renderCalTab(); if (wz.kind && wz.phase === 'intro') wzIntro(); }));
   $('btnCalNext').addEventListener('click', () => { const k = $('btnCalNext').dataset.kind; if (!k) return; if (cal && cal.mode) wzResume(cal); else openWizard(k); });
   document.querySelectorAll('[data-cal]').forEach((b) => b.addEventListener('click', () => openWizard(b.dataset.cal)));
-  $('btnUndo').addEventListener('click', () => { if (confirm('Letzte Änderung rückgängig machen?')) undoLast(); });
+  $('btnUndo').addEventListener('click', async () => { if (await ask('Letzte Änderung rückgängig machen?', 'Rückgängig', 'Abbrechen')) undoLast(); });
+  // Eigene Rückfrage im App-Design (statt der Browser-Meldung)
+  function ask(text, yes = 'Ja', no = 'Nein') {
+    return new Promise((resolve) => {
+      const d = $('dlg');
+      $('dlgText').textContent = text; $('dlgYes').textContent = yes; $('dlgNo').textContent = no;
+      d.hidden = false; $('dlgNo').focus();
+      const done = (v) => { d.hidden = true; $('dlgYes').onclick = $('dlgNo').onclick = null; resolve(v); };
+      $('dlgYes').onclick = () => done(true); $('dlgNo').onclick = () => done(false);
+    });
+  }
   function undoLast() { wz.undoSeq = cal ? cal.resultSeq : -1; act(() => dev.send(P.cmd.char('U'))); }
 
   // ---- Assistent ---------------------------------------------------------------------
@@ -427,11 +439,21 @@
     wz.kind = null; wz.phase = null;
     renderCalTab(); renderBanners();
   }
-  $('wzClose').addEventListener('click', () => {
+  $('wzClose').addEventListener('click', async () => {
     if ((wz.phase === 'run' || wz.phase === 'starting') && cal && cal.mode) {
-      if (!confirm('Kalibrierung abbrechen? Die bisherige Kalibrierung gilt dann weiter.')) return;
-      dev.send(P.cmd.char('x')).catch(() => {});
-      return;                      // Ergebnis "Abgebrochen" kommt vom Geraet
+      if (!await ask('Kalibrierung abbrechen? Die bisherige Kalibrierung gilt dann weiter.', 'Abbrechen', 'Weitermachen')) return;
+      if (!wz.kind) return;
+      const seq = cal.resultSeq;
+      try { await dev.send(P.cmd.char('x')); } catch (e) { /* unten behandelt */ }
+      // Normalerweise meldet das Geraet "Abgebrochen". Kommt nichts, schliesst die App trotzdem.
+      clearTimeout(wz.timer);
+      wz.timer = setTimeout(() => {
+        if (!wz.kind) return;
+        const stillRunning = cal && cal.mode && cal.resultSeq === seq;
+        closeWizard();
+        if (stillRunning || conn !== 'connected') toast('Das Gerät hat nicht geantwortet. Gerät aus- und wieder einschalten.', true);
+      }, 3000);
+      return;
     }
     closeWizard();
   });
@@ -448,7 +470,7 @@
     } else if (k === 'zero') {
       pk = 'straight';
       todo = leg ? ['Ferse auf einen Stuhl oder Hocker legen, Kniekehle frei hängen lassen.', 'Muskeln locker lassen, Kniescheibe zeigt nach oben.', 'Wenn das Bein ganz gestreckt ist: unten tippen und 2 Sekunden still halten.']
-        : ['Das Gelenk ganz gerade (0°) hinlegen.', 'Wenn es ganz gestreckt ist: unten tippen und 2 Sekunden still halten.'];
+        : ['Das Gelenk ganz gerade (0°) halten, und zwar aufrecht wie ein Bein: die Gelenkachse waagrecht. Nicht flach auf den Tisch legen – dann sieht das Gerät die Schwerkraft nicht.', 'Abstützen hilft, z.B. an der Tischkante.', 'Wenn es ganz gestreckt ist: unten tippen und 2 Sekunden still halten.'];
       go = leg ? 'Bein ist gestreckt: 0° setzen' : 'Gelenk ist gestreckt: 0° setzen';
       extra = refBox('Mit diesem Winkel setzen');
     } else {
@@ -668,6 +690,15 @@
     if (wz.phase !== 'check') return;
     const e = $('wzCheckAngle'); if (!e) return;
     e.innerHTML = (live && live.angle !== null) ? esc(fmt(live.angle, 1)) + '<sup>°</sup>' : '–';
+    const n = $('wzCheckNote'); if (!n) return;
+    let why = '';
+    if (!live) why = 'Keine Daten vom Gerät.';
+    else if (live.angle === null) {
+      if (live.sysFlags & P.SF.OFFLINE) why = 'Ein Sensor antwortet nicht: Kabel zum unteren Sensor prüfen.';
+      else if (live.sysFlags & P.SF.VERT) why = onLeg() ? 'Kniescheibe nach oben drehen.' : 'Gelenkachse waagrecht halten (nicht flach hinlegen).';
+      else why = 'Messung stellt sich ein: kurz ruhig halten.';
+    }
+    n.textContent = why || (wz.muted ? 'Der Alarm ist während der Kontrolle 2 Minuten stumm.' : '');
   }
 
   // ---------------------------------------------------------------------------
@@ -722,7 +753,7 @@
     try { await dev.send(P.cmd.logRead(0)); } catch (e) { logLoading = false; toast('Laden fehlgeschlagen.', true); }
     setTimeout(() => { if (logLoading) { logLoading = false; renderLog(logRows.length); } }, 15000);
   });
-  $('btnLogClear').addEventListener('click', () => { if (confirm('Alle gespeicherten Überstreckungen im Gerät löschen?')) act(async () => { await dev.send(P.cmd.logClear()); logRows = []; renderLog(0); }, 'Gelöscht'); });
+  $('btnLogClear').addEventListener('click', async () => { if (await ask('Alle gespeicherten Überstreckungen im Gerät löschen?', 'Löschen', 'Abbrechen')) act(async () => { await dev.send(P.cmd.logClear()); logRows = []; renderLog(0); }, 'Gelöscht'); });
   $('btnStatsReset').addEventListener('click', () => act(() => dev.send(P.cmd.statsReset()), 'Zähler zurückgesetzt'));
   function download(name, text) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv' })); a.download = name;
@@ -774,7 +805,7 @@
     else { t.textContent = 'Koppeln ist nur in den ersten 60 Sekunden nach dem Einschalten möglich: Gerät aus- und einschalten, sofort verbinden, dann hier koppeln.'; bp.hidden = bf.hidden = true; }
   }
   $('btnPair').addEventListener('click', async () => { try { const ok = await dev.pair(); toast(ok ? 'Gekoppelt. Das Gerät hat zur Bestätigung vibriert.' : 'Koppeln nicht möglich. Das Zeitfenster ist abgelaufen.', !ok); } catch (e) { toast('Koppeln fehlgeschlagen.', true); } });
-  $('btnForget').addEventListener('click', () => { if (confirm('Kopplung löschen? Danach kann dieses Handy nur noch zusehen.')) act(() => dev.forget(), 'Kopplung gelöscht'); });
+  $('btnForget').addEventListener('click', async () => { if (await ask('Kopplung löschen? Danach kann dieses Handy nur noch zusehen.', 'Löschen', 'Abbrechen')) act(() => dev.forget(), 'Kopplung gelöscht'); });
   $('btnMotorCal').addEventListener('click', () => act(() => dev.send(P.cmd.motorCal()), 'Der Motor läuft jetzt etwa 1 Sekunde.'));
   $('btnInfo').addEventListener('click', () => { if (conn === 'connected') dev.send(P.cmd.info()).catch(() => {}); });
   function renderDiag() {

@@ -26,7 +26,7 @@
   const HINT = { NONE: 0, HOLD_STILL: 1, WAIT_REST: 2, COMPUTING: 3,
                  PLACE: 10, POSE_DONE: 11, POSE_SAME: 12, UNSTEADY: 13, OTHER_SIDES: 14,
                  EX_FLEX: 20, EX_TILT: 21, EX_BOTH: 22, MORE_THIGH: 23, MORE_SHANK: 24, MORE_RANGE: 25,
-                 TILT: 30, STRAIGHT_CONFIRM: 31, AXIS_VERTICAL: 32, FLEX: 33 };
+                 TILT: 30, STRAIGHT_CONFIRM: 31, AXIS_VERTICAL: 32, FLEX: 33, SETTLE: 34, SENSOR: 35 };
   const RESULT = { NONE: 0, OK: 1, OK_PARTIAL: 2, ABORTED: 3, ACC_FIT: 4, TOO_LITTLE_MOTION: 5, AXIS1: 6, AXIS2: 7, SIGN: 8, NO_REST: 9, TIMEOUT: 10, TOO_FEW: 11, NEED_JOINT: 12, UNDONE: 13, RANGE: 14 };
 
   const dv = (buf) => (buf instanceof DataView ? buf : new DataView(buf.buffer || buf, buf.byteOffset || 0, buf.byteLength));
