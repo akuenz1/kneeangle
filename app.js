@@ -2,7 +2,8 @@
 'use strict';
 (function () {
   const P = window.KneeProto;
-  const APP_VERSION = '3.0.2';
+  const APP_VERSION = '3.0.3';
+  const FW_VERSION = '2.2a';        // Firmware, mit der diese App ausgeliefert und getestet wurde (Anzeige auf der Startseite)
   const $ = (id) => document.getElementById(id);
   const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? '–' : v.toFixed(d).replace('-', '−');
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -786,18 +787,19 @@
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
     const now = performance.now();
     const pts = chartBuf.filter((p) => now - p[0] <= span), vals = pts.filter((p) => p[1] !== null);
-    let lo = -10, hi = 30;
-    vals.forEach((p) => { lo = Math.min(lo, p[1] - 5); hi = Math.max(hi, p[1] + 5); });
     // Zeichenfläche rechts der Skala und über der Zeitachse: die Linie läuft nie durch die Beschriftung
     g.font = '12px Barlow, sans-serif';
     const L = 38, R = w - 7, T = 7, B = h - 20;
     const X = (t) => R - (now - t) / span * (R - L), Y = (a) => B - (a - lo) / (hi - lo) * (B - T);
     const last = pts.length ? pts[pts.length - 1] : null;
     const lim = last ? last[2] : (settings ? settings.limit : -5), zone = last ? last[4] : (settings && settings.approachOn ? settings.zone : 10);
+    // Bereich: immer etwas Platz unter der Grenze (roter Streifen sichtbar) und über der Vorwarnzone
+    let lo = Math.min(-10, lim - 7), hi = Math.max(30, lim + zone + 10);
+    vals.forEach((p) => { lo = Math.min(lo, p[1] - 5); hi = Math.max(hi, p[1] + 5); });
     // Bereiche: unter der Grenze rot, Vorwarnung gelb
     const yl = Math.min(B, Math.max(T, Y(lim)));
-    g.fillStyle = 'rgba(208,52,44,.09)'; g.fillRect(L, yl, R - L, B - yl);
-    if (zone > 0) { const yz = Math.min(B, Math.max(T, Y(lim + zone))); g.fillStyle = 'rgba(232,162,12,.12)'; g.fillRect(L, yz, R - L, yl - yz); }
+    g.fillStyle = 'rgba(208,52,44,.13)'; g.fillRect(L, yl, R - L, B - yl);
+    if (zone > 0) { const yz = Math.min(B, Math.max(T, Y(lim + zone))); g.fillStyle = 'rgba(242,183,61,.16)'; g.fillRect(L, yz, R - L, yl - yz); }
     // Skala links, Gitter nur in der Zeichenfläche
     g.fillStyle = '#5b6b76'; g.strokeStyle = '#e4eaed'; g.lineWidth = 1; g.textAlign = 'right'; g.textBaseline = 'middle';
     // Schrittweite so, dass die Skalenwerte mindestens 22 px auseinander liegen
@@ -872,6 +874,8 @@
   $('pWake').addEventListener('change', (e) => { prefs.wake = e.target.checked; savePrefs(); applyWake(); });
   document.addEventListener('visibilitychange', applyWake);
   $('appVer').textContent = APP_VERSION;
+  $('verApp').textContent = 'App ' + APP_VERSION;
+  $('verFw').textContent = 'Firmware ' + FW_VERSION;
 
   // ---------------------------------------------------------------------------
   //  Start

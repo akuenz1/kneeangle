@@ -107,8 +107,8 @@ main { max-width: 640px; margin: 0 auto; }
 .gauge { width: 100%; max-width: 480px; aspect-ratio: 288 / 192; display: block; margin: 4px auto 0; overflow: visible; }
 .g-scale { fill: none; stroke: #e4eaed; stroke-width: 10; stroke-linecap: round; }
 .g-app { fill: none; stroke: var(--bernstein); stroke-width: 10; }
-.g-over { fill: none; stroke: var(--rot); stroke-width: 10; stroke-linecap: round; }
-.g-limit { stroke: var(--rot); stroke-width: 3; stroke-dasharray: 5 4; }
+.g-over { fill: none; stroke: var(--rot); stroke-width: 10; stroke-linecap: butt; }
+.g-overcap { fill: var(--rot); }
 .g-bone { stroke: var(--schiefer); stroke-width: 15; stroke-linecap: round; }
 .g-shank { stroke: var(--moos); transition: stroke .15s; }
 .gauge[data-state="approach"] .g-shank { stroke: var(--bernstein); }
@@ -122,6 +122,11 @@ main { max-width: 640px; margin: 0 auto; }
 .welcome { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; padding: 22px 18px calc(26px + env(safe-area-inset-bottom)); }
 .hero { margin: auto 0; border-radius: 28px; padding: 26px 10px 18px; background: radial-gradient(120% 90% at 30% 20%, var(--petrol-glanz), var(--petrol) 55%, var(--petrol-tief)); overflow: hidden; }
 .hero .gauge { max-width: 420px; }
+.brandbar { display: flex; align-items: center; gap: 14px; padding: 6px 4px 0; }
+.brandbar .logo { width: 60px; height: 60px; flex: none; border-radius: 17px; box-shadow: 0 8px 20px rgba(29, 40, 48, .22); }
+.wordmark { margin: 0; font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: 40px; line-height: 1; color: var(--petrol-tief); letter-spacing: .3px; }
+.vers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.vers span { font-size: 13px; font-weight: 600; color: var(--petrol); background: #fff; border: 1px solid #dde4e8; border-radius: 999px; padding: 3px 10px; }
 .hero .g-scale { stroke: rgba(255, 255, 255, .18); }
 .hero .g-bone { stroke: #fff; }
 .hero .g-shank { stroke: #9ee6bd; }
@@ -129,19 +134,20 @@ main { max-width: 640px; margin: 0 auto; }
 .hero .gauge[data-state="over"] .g-shank { stroke: #ff9a92; }
 .hero .g-joint { fill: var(--petrol); stroke: #fff; }
 .hero .g-lbl { fill: rgba(255, 255, 255, .8); }
-.hero .g-over, .hero .g-limit { stroke: #ff8a80; }
+.hero .g-over { stroke: #ff8a80; }
+.hero .g-overcap { fill: #ff8a80; }
 .hero .g-app { stroke: #ffc94d; }
 .startbtns { display: flex; flex-direction: column; gap: 12px; padding-top: 22px; }
 .startbtns .note { margin: 0; }
 
 /* ---------- Messen ---------- */
-.herocard { padding: 14px 8px 14px; background: var(--tint); transition: background-color .2s; }
+.herocard { padding: 12px 8px 12px; background: var(--tint); transition: background-color .2s; }
 body[data-state="approach"] { --tint: #fff3d6; --akzent: var(--bernstein-text); }
 body[data-state="over"] { --tint: #fce4e2; --akzent: var(--rot); }
 body[data-state="invalid"], body[data-state="off"] { --tint: #fff; --akzent: var(--grau); }
 .readout { text-align: center; margin-top: -2px; }
-.herocard .gauge { width: auto; height: clamp(140px, 22vh, 210px); max-width: 100%; margin: 0 auto; }
-.angle { font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: clamp(64px, min(20vw, 10.5vh), 112px); line-height: .92; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
+.herocard .gauge { width: auto; height: clamp(110px, 17vh, 200px); max-width: 100%; margin: 0 auto; }
+.angle { font-family: "Barlow Condensed", "Barlow", sans-serif; font-weight: 600; font-size: clamp(60px, min(19vw, 9.8vh), 112px); line-height: .92; font-variant-numeric: tabular-nums; letter-spacing: -1px; }
 .angle sup { font-size: .42em; vertical-align: top; position: relative; top: .14em; margin-left: 2px; }
 .stateline { font-size: 21px; font-weight: 600; color: var(--akzent); min-height: 28px; margin-top: 2px; }
 .subline { font-size: 15px; color: var(--grau); min-height: 21px; }
@@ -149,13 +155,15 @@ body[data-state="invalid"], body[data-state="off"] { --tint: #fff; --akzent: var
 .silbar svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .silbar .grow { font-weight: 600; }
 .silbar .btn { background: #fff; color: var(--schiefer); }
-.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 6px; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 9px 6px; }
 .facts.inner { padding: 0; box-shadow: none; margin: 0; }
 .facts div { text-align: center; padding: 2px 4px; border-left: 1px solid var(--linie); }
 .facts div:first-child { border-left: 0; }
-.facts b { display: block; font-family: "Barlow Condensed", sans-serif; font-size: 30px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.facts b { display: block; font-family: "Barlow Condensed", sans-serif; font-size: 27px; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .facts span { font-size: 13.5px; color: var(--grau); }
-.spark canvas { width: 100%; height: clamp(84px, 12vh, 120px); display: block; }
+.spark canvas { width: 100%; height: clamp(76px, 11vh, 120px); display: block; }
+#view-live .spark .cardhead { margin-bottom: 4px; }
+#view-live .spark .legend { margin-top: 4px; }
 
 /* ---------- Kalibrieren ---------- */
 .status { display: flex; gap: 14px; align-items: center; }
@@ -340,6 +348,7 @@ ol.todo li::before { content: counter(s); width: 28px; height: 28px; border-radi
 .p-guide { fill: none; stroke: #dfe6e9; stroke-width: 2.5; stroke-dasharray: 2 7; stroke-linecap: round; }
 .p-axis { fill: none; stroke: var(--petrol); stroke-width: 12; stroke-linecap: round; }
 .p-ar { fill: none; stroke: var(--bernstein); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+.p-arh { fill: var(--bernstein); stroke: var(--bernstein); stroke-width: 2; stroke-linejoin: round; }
 .p-calm { fill: none; stroke: var(--petrol); stroke-width: 6; stroke-linecap: round; }
 .p-lead { fill: none; stroke: var(--grau); stroke-width: 1.6; }
 .p-lbl { font-family: "Barlow", sans-serif; font-size: 15px; fill: var(--grau); }

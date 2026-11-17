@@ -20,23 +20,23 @@
     const t0 = pt(0, G.r + 12), t90 = pt(90, G.r + 20);
     // Ausschnitt eng um die Zeichnung (x 20…292, y 50…232), damit sie in der Kachel mittig sitzt
     svg.setAttribute('viewBox', '12 44 288 192');
-    svg.innerHTML = `<path class="g-scale" d="${arc(G.a0, G.a1, G.r)}"/><path class="g-app" d=""/><path class="g-over" d=""/>
-      <line class="g-limit" x1="0" y1="0" x2="0" y2="0"/>
+    svg.innerHTML = `<path class="g-scale" d="${arc(G.a0, G.a1, G.r)}"/><path class="g-app" d=""/><path class="g-over" d=""/><circle class="g-overcap" r="5"/>
       <text class="g-lbl" x="${f1(t0[0])}" y="${f1(t0[1] + 4)}">0°</text><text class="g-lbl" x="${f1(t90[0])}" y="${f1(t90[1])}" text-anchor="middle">90°</text>
       <line class="g-bone" x1="28" y1="96" x2="150" y2="96"/><line class="g-bone g-shank" x1="150" y1="96" x2="250" y2="96"/>
       <circle class="g-joint" cx="150" cy="96" r="11"/>`;
     const q = (s) => svg.querySelector(s);
-    const e = { app: q('.g-app'), over: q('.g-over'), lim: q('.g-limit'), shank: q('.g-shank') };
+    const e = { app: q('.g-app'), over: q('.g-over'), cap: q('.g-overcap'), shank: q('.g-shank') };
     let key = '';
     return {
       set(angle, limit, zone, approachOn, state) {
         const k = limit.toFixed(1) + '|' + zone + '|' + approachOn;
         if (k !== key) {
           key = k;
-          e.over.setAttribute('d', arc(G.a0, limit, G.r));
+          // roter Bereich: gerades Ende an der Grenze, aussen gerundet
+          const od = arc(G.a0, limit, G.r), c = pt(G.a0, G.r);
+          e.over.setAttribute('d', od);
+          e.cap.setAttribute('cx', f1(c[0])); e.cap.setAttribute('cy', f1(c[1])); e.cap.style.display = od ? '' : 'none';
           e.app.setAttribute('d', approachOn ? arc(limit, limit + zone, G.r) : '');
-          const a = pt(limit, 62), b = pt(limit, G.r + 8);
-          e.lim.setAttribute('x1', f1(a[0])); e.lim.setAttribute('y1', f1(a[1])); e.lim.setAttribute('x2', f1(b[0])); e.lim.setAttribute('y2', f1(b[1]));
         }
         svg.dataset.state = state;
         svg.dataset.noangle = angle === null ? '1' : '0';
@@ -63,16 +63,34 @@
   const JOINT = `<circle class="p-joint" cx="${J[0]}" cy="${J[1]}" r="10"/>`;
   const GUIDE = `<path class="p-guide" d="M${J[0] + 122} ${J[1]}A122 122 0 0 1 ${J[0]} ${J[1] + 122}"/>`;
   const SV = (body) => `<svg class="pict" viewBox="0 0 320 196" aria-hidden="true">${body}</svg>`;
+  // Bogenpfeil um (cx, cy) von Winkel a0 nach a1 (Grad; 0 = rechts, positiv = im Uhrzeigersinn).
+  // Gefuellte Spitze am Ende (a1), in Laufrichtung; mit both auch am Anfang. Der Bogen hoert an der Basis der
+  // Spitze auf, so laufen Bogen und Spitze auch bei kleinem Radius sauber ineinander.
+  function arrow(cx, cy, r, a0, a1, both) {
+    const HL = 15, HW = 8.5, dir = a1 > a0 ? 1 : -1, cut = (HL * 0.55 / r) * 180 / Math.PI;
+    const P = (a) => [cx + r * Math.cos(rad(a)), cy + r * Math.sin(rad(a))];
+    const e1 = a1 - dir * cut, e0 = both ? a0 + dir * cut : a0;
+    const [x0, y0] = P(e0), [x1, y1] = P(e1);
+    let out = `<path class="p-ar" d="M${f1(x0)} ${f1(y0)}A${r} ${r} 0 ${Math.abs(e1 - e0) > 180 ? 1 : 0} ${dir > 0 ? 1 : 0} ${f1(x1)} ${f1(y1)}"/>`;
+    const head = (a, sgn) => {
+      const [bx, by] = P(a), tx = -Math.sin(rad(a)) * sgn, ty = Math.cos(rad(a)) * sgn;   // Laufrichtung an der Basis
+      const ax = bx - tx * 2, ay = by - ty * 2;                                              // Basis leicht ueber das Bogenende
+      return `<path class="p-arh" d="M${f1(bx + tx * (HL - 2))} ${f1(by + ty * (HL - 2))}L${f1(ax - ty * HW)} ${f1(ay + tx * HW)}L${f1(ax + ty * HW)} ${f1(ay - tx * HW)}Z"/>`;
+    };
+    out += head(e1, dir);
+    if (both) out += head(e0, -dir);
+    return out;
+  }
   const lead = (x1, y1, x2, y2, tx, ty, t) => `<path class="p-lead" d="M${x1} ${y1}L${x2} ${y2}"/><text class="p-lbl" x="${tx}" y="${ty}">${t}</text>`;
   function pict(key) {
     switch (key) {
       case 'place': return SV(GUIDE + THIGH + seg(90) + JOINT + lead(90, 52, 90, 26, 96, 22, 'Arduino') + lead(166, 123, 196, 123, 202, 128, 'Sensor'));
       case 'rest': return SV(GUIDE + THIGH + seg(90) + JOINT + '<path class="p-calm" d="M246 22v26M262 22v26"/>');
-      case 'exFlex': return SV(GUIDE + THIGH + seg(90, 'p-anim p-flex') + JOINT + '<path class="p-ar" d="M244 98a96 96 0 0 0 12-62"/><path class="p-ar" d="M256 36l-9 10M256 36l5 12"/>');
-      case 'exTilt': return SV(`<g class="p-anim p-rock">${THIGH}${seg(60, 'p-anim p-flexs')}${JOINT}</g><path class="p-ar" d="M268 26a20 20 0 1 1-20 20"/><path class="p-ar" d="M248 46l-6-10M248 46l8-8"/>`);
-      case 'tilt': return SV(`<text class="p-lbl b" x="18" y="24">Gelenkachse</text><text class="p-lbl" x="18" y="44">schräg halten</text><path class="p-guide" d="M60 120H280"/><g transform="rotate(-28 170 120)"><path class="p-axis" d="M86 120H254"/></g><circle class="p-joint" cx="170" cy="120" r="10"/><path class="p-ar" d="M272 120a102 102 0 0 0-13-50"/><path class="p-ar" d="M259 70l-1 13M259 70l11 6"/><text class="p-lbl big" x="276" y="102">≥ 15°</text>`);
+      case 'exFlex': return SV(GUIDE + THIGH + seg(90, 'p-anim p-flex') + JOINT + arrow(J[0], J[1], 138, 14, 64, true));
+      case 'exTilt': return SV(`<g class="p-anim p-rock">${THIGH}${seg(60, 'p-anim p-flexs')}${JOINT}</g>${arrow(266, 44, 21, -80, 200)}`);
+      case 'tilt': return SV(`<text class="p-lbl b" x="18" y="24">Gelenkachse</text><text class="p-lbl" x="18" y="44">schräg halten</text><path class="p-guide" d="M60 120H280"/><g transform="rotate(-28 170 120)"><path class="p-axis" d="M86 120H254"/></g><circle class="p-joint" cx="170" cy="120" r="10"/>${arrow(170, 120, 102, 0, -28)}<text class="p-lbl big" x="312" y="150" text-anchor="end">≥ 15°</text>`);
       case 'straight': return SV(THIGH + seg(0) + JOINT + `<path class="p-guide" d="M42 ${J[1] + 30}H270"/><text class="p-lbl big" x="${J[0] + 4}" y="${J[1] + 64}">0°</text>`);
-      case 'flexHold': return SV(GUIDE + THIGH + seg(90) + JOINT + '<path class="p-ar" d="M246 70a96 96 0 0 1-60 86"/><path class="p-ar" d="M186 156l13 1M186 156l7-11"/>');
+      case 'flexHold': return SV(GUIDE + THIGH + seg(90) + JOINT + arrow(J[0], J[1], 100, 8, 66));
       case 'poses': return SV('<path class="p-guide" d="M30 170H290"/><g class="p-anim p-pose"><rect class="p-box" x="100" y="62" width="120" height="54" rx="12"/><rect class="p-dev" x="114" y="76" width="32" height="15" rx="4"/><rect class="p-dev" x="176" y="88" width="32" height="15" rx="4"/></g>');
       case 'compute': return SV('<circle class="p-spin-bg" cx="160" cy="92" r="44"/><circle class="p-spin" cx="160" cy="92" r="44"/>');
       default: return '';
